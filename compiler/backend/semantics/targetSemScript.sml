@@ -14,6 +14,12 @@ val () = Datatype `
   machine_result = Halt outcome | Error | TimeOut `;
 
 val _ = Datatype `
+    mem_access =
+        LoadAccess ('a word) num |
+        StoreAccess ('a word) (word8 list) |
+        NotMemAccess`;
+
+val _ = Datatype `
   machine_config =
    <| prog_addresses : ('a word) set
     (* FFI-specific configurations *)
@@ -36,6 +42,13 @@ val _ = Datatype `
     ; ccache_interfer : num -> 'a word # 'a word # 'b -> 'b
     (* target next-state function etc. *)
     ; target : ('a,'b,'c) target
+    ; shared_addresses : ('a word) set
+    (* checks if the instruction to execute is load/store instructions and
+    * gets the relevant address and value *)
+    ; check_mem_access : 'b -> 'a mem_access
+    (* TODO: decide what the 2nd argument should be *)
+    ; read_interfer : num -> 'a word # (word8 list) # 'b -> 'b
+    ; write_interfer : num -> 'a word # (word8 list) # 'b -> 'b
     |>`
 
 val apply_oracle_def = Define `
@@ -63,25 +76,50 @@ val read_ffi_bytearrays_def = Define`
     (read_ffi_bytearray mc mc.ptr_reg mc.len_reg ms,
      read_ffi_bytearray mc mc.ptr2_reg mc.len2_reg ms)`;
 
+val execute_next_def = Define `
+    execute_next eval_func mc (ffi: ('a, 'ffi ffi_state) k (ms: 'a)  =
+      let ms1 = mc.target.next ms in
+      let (ms2,new_oracle) = apply_oracle mc.next_interfer ms1 in
+      let mc = mc with next_interfer := new_oracle in
+        if EVERY mc.target.state_ok [ms;ms1;ms2] ∧
+           (∀x. x ∉ mc.prog_addresses ⇒
+               mc.target.get_byte ms1 x =
+               mc.target.get_byte ms x)
+        then
+           eval_func mc ffi (k - 1) ms2
+        else
+           (Error,ms,ffi)`;
+
 val evaluate_def = Define `
-  evaluate mc (ffi:'ffi ffi_state) k (ms:'a) =
+  evaluate mc (ffi:('a,'ffi) ffi_state) k (ms:'a) =
     if k = 0 then (TimeOut,ms,ffi)
     else
       if mc.target.get_pc ms IN mc.prog_addresses then
         if encoded_bytes_in_mem
             mc.target.config (mc.target.get_pc ms)
             (mc.target.get_byte ms) mc.prog_addresses then
-          let ms1 = mc.target.next ms in
-          let (ms2,new_oracle) = apply_oracle mc.next_interfer ms1 in
-          let mc = mc with next_interfer := new_oracle in
-            if EVERY mc.target.state_ok [ms;ms1;ms2] ∧
-               (∀x. x ∉ mc.prog_addresses ⇒
-                   mc.target.get_byte ms1 x =
-                   mc.target.get_byte ms x)
-            then
-              evaluate mc ffi (k - 1) ms2
-            else
-              (Error,ms,ffi)
+              case mc.check_mem_access ms of
+              | LoadAccess addr n_bytes =>
+                  if addr IN mc.shared_addresses
+                  then
+                    let (ret, new_ffi) = mapped_read ffi addr n_bytes in
+                    let (ms1, new_oracle) =
+                      apply_oracle mc.read_interfer (addr,ret,ms) in
+                    let mc = mc with read_interfer := new_oracle in
+                      execute_next evaluate mc new_ffi k ms1
+                  else execute_next evaluate mc ffi k ms
+              | StoreAcess addr v =>
+                  if addr IN mc.shared_addresses
+                  then
+                    (execute_next
+                      (\mc' ffi' k' ms'.
+                      let new_ffi = mapped_write ffi' addr v in
+                      let (ms2, new_oracle) =
+                        apply_oracle mc'.write_interfer (addr,v,ms') in
+                      let mc' = mc' with write_interfer := new_oracle in
+                        evalute mc' new_ffi k' ms2) mc ffi k m)
+                   else execute_next evaluate mc ffi k ms
+             | NotMemAccess => execute_next evaluate mc ffi k ms
         else (Error,ms,ffi)
       else if mc.target.get_pc ms = mc.halt_pc then
         (if mc.target.get_reg ms mc.ptr_reg = 0w
