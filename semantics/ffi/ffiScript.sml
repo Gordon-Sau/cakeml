@@ -24,12 +24,17 @@ End
 Type oracle_function = “:'ffi -> word8 list -> word8 list -> 'ffi oracle_result”
 Type oracle = “:string -> 'ffi oracle_function”
 
+Type read_oracle = “: 'ffi -> 'a word -> num -> word8 list # 'ffi”
+Type write_oracle = “: 'ffi -> 'a word -> word8 list -> 'ffi”
+
 (* An I/O event, IO_event s bytes bytes2, represents the call of FFI function s with
  * immutable input bytes and mutable input map fst bytes2,
  * returning map snd bytes2 in the mutable array. *)
 
 Datatype:
-  io_event = IO_event string (word8 list) ((word8 # word8) list)
+  io_event = IO_event string (word8 list) ((word8 # word8) list) |
+      Mapped_read ('a word) (word8 list) |
+      Mapped_write ('a word) (word8 list)
 End
 
 Datatype:
@@ -41,21 +46,24 @@ Datatype:
   <| oracle      : 'ffi oracle
    ; ffi_state   : 'ffi
    ; io_events   : io_event list
+   ; read_oracle : 'ffi read_oracle
+   ; write_oracle: 'ffi write_oracle
    |>
 End
 
 Definition initial_ffi_state_def:
-  initial_ffi_state oc (ffi:'ffi) =
-    <| oracle := oc; ffi_state := ffi; io_events := [] |>
+  initial_ffi_state oc (ffi:'ffi) ro wo =
+    <| oracle := oc; ffi_state := ffi; io_events := [];
+    read_oracle := ro; write_oracle := wo |>
 End
 
 Datatype:
-  ffi_result = FFI_return ('ffi ffi_state) (word8 list)
+  ffi_result = FFI_return (('a,'ffi) ffi_state) (word8 list)
              | FFI_final final_event
 End
 
 Definition call_FFI_def:
-  call_FFI (st:'ffi ffi_state) s conf bytes =
+  call_FFI (st: ('a,'ffi) ffi_state) s conf bytes =
     if s ≠ "" then
       case st.oracle s st.ffi_state conf bytes of
         Oracle_return ffi' bytes' =>
@@ -70,6 +78,22 @@ Definition call_FFI_def:
       | Oracle_final outcome =>
         FFI_final (Final_event s conf bytes outcome)
     else FFI_return st bytes
+End
+
+Definition mapped_read_def:
+    mapped_read (st: ('a,'ffi) ffi_state) adr n_bytes =
+        let (res, new_state) = st.read_oracle st.ffi_state adr n_bytes in
+          (st with 
+           <| ffi_state := new_state;
+              io_events := st.io_events ++ [Mapped_read adr res]|>,
+          res)
+End
+
+Definition mapped_write_def:
+    mapped_write (st: ('a,'ffi) ffi_state) adr v =
+        (st with
+         <| ffi_state := st.write_oracle st.ffi_state adr v;
+            io_events := st.io_events ++ [Mapped_write adr v]|>)
 End
 
 Datatype:
