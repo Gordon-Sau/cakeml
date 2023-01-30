@@ -77,7 +77,7 @@ val read_ffi_bytearrays_def = Define`
      read_ffi_bytearray mc mc.ptr2_reg mc.len2_reg ms)`;
 
 val execute_next_def = Define `
-    execute_next eval_func mc (ffi:('a,'ffi) ffi_state) (k:num) (ms: 'b)  =
+    execute_next mc (ffi:('a,'ffi) ffi_state) (ms: 'b)  =
       let ms1 = mc.target.next ms in
       let (ms2,new_oracle) = apply_oracle mc.next_interfer ms1 in
       let mc = mc with next_interfer := new_oracle in
@@ -86,9 +86,9 @@ val execute_next_def = Define `
                mc.target.get_byte ms1 x =
                mc.target.get_byte ms x)
         then
-           eval_func mc ffi (k - 1) ms2
+           (T,ms2,ffi,mc)
         else
-           (Error,ms,ffi)`;
+           (F,ms,ffi,mc)`;
 
 val evaluate_def = Define `
   evaluate mc (ffi:('a,'ffi) ffi_state) k (ms:'b) =
@@ -100,16 +100,21 @@ val evaluate_def = Define `
             (mc.target.get_byte ms) mc.prog_addresses then
               case mc.check_mem_access ms of
               | LoadAccess adr n_bytes =>
-                  if adr IN mc.shared_addresses
+                  (if adr IN mc.shared_addresses
                   then
                     let (new_ffi, ret) = mapped_read ffi adr n_bytes in
                     let (ms1, new_oracle) =
                       apply_oracle mc.read_interfer (adr,ret,ms) in
                     let mc = mc with read_interfer := new_oracle in
-                      execute_next evaluate mc new_ffi k ms1
-                  else execute_next evaluate mc ffi k ms
+                      case execute_next mc new_ffi ms1 of
+                      | (T,ms,ffi,mc) => evaluate mc ffi (k-1) ms
+                      | (F,ms,ffi,_) => (Error,ms,ffi)
+                  else
+                    case execute_next mc ffi ms of
+                    | (T,ms,ffi,mc) => evaluate mc ffi (k-1) ms
+                    | (F,ms,ffi,_) => (Error,ms,ffi))
               | StoreAccess adr v inst_len =>
-                  if adr IN mc.shared_addresses
+                  (if adr IN mc.shared_addresses
                   then
                     (* just advancing pc is enough as whenever we read
                     * shared memory, we ask the oracle *)
@@ -118,9 +123,14 @@ val evaluate_def = Define `
                     let (ms2, new_oracle) =
                       apply_oracle mc.write_interfer (adr,v,ms1) in
                     let mc = mc with write_interfer := new_oracle in
-                      evalute mc new_ffi (k-1) ms2
-                  else execute_next evaluate mc ffi k ms
-             | NotMemAccess => execute_next evaluate mc ffi k ms
+                      evaluate mc new_ffi (k-1) ms2
+                  else case execute_next mc ffi ms of
+                       | (T,ms,ffi,mc) => evaluate mc ffi (k-1) ms 
+                       | (F,ms,ffi,_) => (Error,ms,ffi))
+             | NotMemAccess =>
+                  case execute_next mc ffi ms of
+                  | (T,ms,ffi,mc) => evaluate mc ffi (k-1) ms 
+                  | (F,ms,ffi,_) => (Error,ms,ffi)
         else (Error,ms,ffi)
       else if mc.target.get_pc ms = mc.halt_pc then
         (if mc.target.get_reg ms mc.ptr_reg = 0w
