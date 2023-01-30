@@ -45,9 +45,9 @@ Datatype:
   ffi_state =
   <| oracle      : 'ffi oracle
    ; ffi_state   : 'ffi
-   ; io_events   : io_event list
-   ; read_oracle : 'ffi read_oracle
-   ; write_oracle: 'ffi write_oracle
+   ; io_events   : ('a io_event) list
+   ; read_oracle : ('a, 'ffi) read_oracle
+   ; write_oracle: ('a, 'ffi) write_oracle
    |>
 End
 
@@ -83,7 +83,7 @@ End
 Definition mapped_read_def:
     mapped_read (st: ('a,'ffi) ffi_state) adr n_bytes =
         let (res, new_state) = st.read_oracle st.ffi_state adr n_bytes in
-          (st with 
+          (st with
            <| ffi_state := new_state;
               io_events := st.io_events ++ [Mapped_read adr res]|>,
           res)
@@ -108,11 +108,11 @@ Datatype:
     (* There cannot be any non-returning FFI calls in a diverging
        exeuction. The list of I/O events can be finite or infinite,
        hence the llist (lazy list) type. *)
-    Diverge (io_event llist)
+    Diverge (('a io_event) llist)
     (* Terminating executions can only perform a finite number of
        FFI calls. The execution can be terminated by a non-returning
        FFI call. *)
-  | Terminate outcome (io_event list)
+  | Terminate outcome (('a io_event) list)
     (* Failure is a behaviour which we prove cannot occur for any
        well-typed program. *)
   | Fail
