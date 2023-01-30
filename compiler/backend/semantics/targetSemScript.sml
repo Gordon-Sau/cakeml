@@ -16,7 +16,7 @@ val () = Datatype `
 val _ = Datatype `
     mem_access =
         LoadAccess ('a word) num |
-        StoreAccess ('a word) (word8 list) |
+        StoreAccess ('a word) (word8 list) ('a word) |
         NotMemAccess`;
 
 val _ = Datatype `
@@ -46,9 +46,9 @@ val _ = Datatype `
     (* checks if the instruction to execute is load/store instructions and
     * gets the relevant address and value *)
     ; check_mem_access : 'b -> 'a mem_access
-    (* TODO: decide what the 2nd argument should be *)
     ; read_interfer : num -> 'a word # (word8 list) # 'b -> 'b
     ; write_interfer : num -> 'a word # (word8 list) # 'b -> 'b
+    ; advance_pc : 'b -> 'a word -> 'b
     |>`
 
 val apply_oracle_def = Define `
@@ -77,7 +77,7 @@ val read_ffi_bytearrays_def = Define`
      read_ffi_bytearray mc mc.ptr2_reg mc.len2_reg ms)`;
 
 val execute_next_def = Define `
-    execute_next eval_func mc (ffi: ('a, 'ffi ffi_state) k (ms: 'a)  =
+    execute_next eval_func mc (ffi:('a,'ffi) ffi_state) (k:num) (ms: 'b)  =
       let ms1 = mc.target.next ms in
       let (ms2,new_oracle) = apply_oracle mc.next_interfer ms1 in
       let mc = mc with next_interfer := new_oracle in
@@ -91,7 +91,7 @@ val execute_next_def = Define `
            (Error,ms,ffi)`;
 
 val evaluate_def = Define `
-  evaluate mc (ffi:('a,'ffi) ffi_state) k (ms:'a) =
+  evaluate mc (ffi:('a,'ffi) ffi_state) k (ms:'b) =
     if k = 0 then (TimeOut,ms,ffi)
     else
       if mc.target.get_pc ms IN mc.prog_addresses then
@@ -99,26 +99,27 @@ val evaluate_def = Define `
             mc.target.config (mc.target.get_pc ms)
             (mc.target.get_byte ms) mc.prog_addresses then
               case mc.check_mem_access ms of
-              | LoadAccess addr n_bytes =>
-                  if addr IN mc.shared_addresses
+              | LoadAccess adr n_bytes =>
+                  if adr IN mc.shared_addresses
                   then
-                    let (ret, new_ffi) = mapped_read ffi addr n_bytes in
+                    let (new_ffi, ret) = mapped_read ffi adr n_bytes in
                     let (ms1, new_oracle) =
-                      apply_oracle mc.read_interfer (addr,ret,ms) in
+                      apply_oracle mc.read_interfer (adr,ret,ms) in
                     let mc = mc with read_interfer := new_oracle in
                       execute_next evaluate mc new_ffi k ms1
                   else execute_next evaluate mc ffi k ms
-              | StoreAcess addr v =>
-                  if addr IN mc.shared_addresses
+              | StoreAccess adr v inst_len =>
+                  if adr IN mc.shared_addresses
                   then
-                    (execute_next
-                      (\mc' ffi' k' ms'.
-                      let new_ffi = mapped_write ffi' addr v in
-                      let (ms2, new_oracle) =
-                        apply_oracle mc'.write_interfer (addr,v,ms') in
-                      let mc' = mc' with write_interfer := new_oracle in
-                        evalute mc' new_ffi k' ms2) mc ffi k m)
-                   else execute_next evaluate mc ffi k ms
+                    (* just advancing pc is enough as whenever we read
+                    * shared memory, we ask the oracle *)
+                    let ms1 = mc.advance_pc ms inst_len in
+                    let new_ffi = mapped_write ffi adr v in
+                    let (ms2, new_oracle) =
+                      apply_oracle mc.write_interfer (adr,v,ms1) in
+                    let mc = mc with write_interfer := new_oracle in
+                      evalute mc new_ffi (k-1) ms2
+                  else execute_next evaluate mc ffi k ms
              | NotMemAccess => execute_next evaluate mc ffi k ms
         else (Error,ms,ffi)
       else if mc.target.get_pc ms = mc.halt_pc then
@@ -256,6 +257,11 @@ val ccache_interfer_ok_def = Define`
            pc := t1.regs (case mc_conf.target.config.link_reg of NONE => 0
                   | SOME n => n)|>)
         (mc_conf.ccache_interfer k (a1,a2,ms2)))`;
+
+val read_interfer_ok_def = Define`
+`;
+
+val write_interfer_ok_def = Define``;
 
 (*
   good_init_state:
