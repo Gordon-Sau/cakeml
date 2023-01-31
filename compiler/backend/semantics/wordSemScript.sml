@@ -105,7 +105,7 @@ val _ = Datatype `
      ; termdep : num (* count of how many MustTerminates we can still enter *)
      ; code    : (num # ('a wordLang$prog)) num_map
      ; be      : bool (*is big-endian*)
-     ; ffi     : 'ffi ffi_state |> `
+     ; ffi     : ('a,'ffi) ffi_state |> `
 
 Definition stack_size_frame_def:
   stack_size_frame (StackFrame n _ NONE) = n /\
