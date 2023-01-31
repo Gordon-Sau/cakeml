@@ -15,6 +15,7 @@ val () = Datatype `
      ; fp_regs    : num -> word64
      ; mem        : 'a word -> word8
      ; mem_domain : 'a word set
+     ; shared_mem_domain: 'a word set
      ; pc         : 'a word
      ; lr         : reg
      ; align      : num
@@ -159,7 +160,7 @@ val read_mem_word_def = Define `
   (read_mem_word a (SUC n) s =
      let (w,s1) = read_mem_word (if s.be then a - 1w else a + 1w) n s in
        (word_or (w << 8) (w2w (read_mem a s1)),
-          assert (a IN s1.mem_domain) s1))`
+          assert (a IN s1.mem_domain ∪ s1.shared_mem_domain) s1))`
 
 val mem_load_def = Define `
   mem_load n r a s =
@@ -172,7 +173,7 @@ val write_mem_word_def = Define `
   (write_mem_word a 0 w s = s) /\
   (write_mem_word a (SUC n) w s =
      let s1 = write_mem_word (if s.be then a - 1w else a + 1w) n (w >>> 8) s in
-       assert (a IN s1.mem_domain) (upd_mem a (w2w w) s1))`
+       assert (a IN s1.mem_domain ∪ s1.shared_mem_domain) (upd_mem a (w2w w) s1))`
 
 val mem_store_def = Define `
   mem_store n r a s =

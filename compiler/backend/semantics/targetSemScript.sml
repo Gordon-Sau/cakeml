@@ -16,7 +16,7 @@ val () = Datatype `
 val _ = Datatype `
     mem_access =
         LoadAccess ('a word) num |
-        StoreAccess ('a word) (word8 list) ('a word) |
+        StoreAccess ('a word) num ('a word) |
         NotMemAccess`;
 
 val _ = Datatype `
@@ -193,6 +193,8 @@ val target_configured_def = Define`
     t.be = mc_conf.target.config.big_endian /\
     t.align = mc_conf.target.config.code_alignment /\
     t.mem_domain = mc_conf.prog_addresses /\
+    t.shared_mem_domain = mc_conf.shared_addresses /\
+    mc_conf.prog_addresses ∩ mc_conf.shared_addresses = ∅ /\
     (* byte_aligned (t.regs mc_conf.ptr_reg) ∧ *)
     (* byte_aligned (t.regs mc_conf.ptr2_reg) ∧ *)
     (case mc_conf.target.config.link_reg of NONE => T | SOME r => t.lr = r)
@@ -203,6 +205,8 @@ val start_pc_ok_def = Define`
   start_pc_ok mc_conf pc ⇔
     mc_conf.halt_pc NOTIN mc_conf.prog_addresses /\
     mc_conf.ccache_pc NOTIN mc_conf.prog_addresses /\
+    mc_conf.halt_pc NOTIN mc_conf.shared_addresses /\
+    mc_conf.ccache_pc NOTIN mc_conf.shared_addresses /\
     pc - n2w ffi_offset = mc_conf.halt_pc /\
     pc - n2w (2*ffi_offset) = mc_conf.ccache_pc /\
     (1w && pc) = 0w /\
@@ -242,7 +246,7 @@ val ffi_interfer_ok_def = Define`
             (λa.
              get_reg_value
                (if MEM a mc_conf.callee_saved_regs then NONE else io_regs k (EL index mc_conf.ffi_names) a)
-               (t1.regs a) I);
+               (kllllt1.regs a) I);
            mem := asm_write_bytearray (t1.regs mc_conf.ptr2_reg) new_bytes t1.mem;
            pc := t1.regs (case mc_conf.target.config.link_reg of NONE => 0
                   | SOME n => n)|>)
@@ -269,9 +273,14 @@ val ccache_interfer_ok_def = Define`
         (mc_conf.ccache_interfer k (a1,a2,ms2)))`;
 
 val read_interfer_ok_def = Define`
-`;
-
-val write_interfer_ok_def = Define``;
+  read_interfer_ok mc_conf <=>
+    (!ms2 t1 k adr new_val.
+        target_state_rel mc_conf.target t1 ms2 /\
+        {y | (y >= adr) \/ (y < adr + n2w (LENGTH new_val))} SUBSET mc_conf.shared_addresses ==>
+        target_state_rel mc_conf.target
+          (t1 with
+           <|mem := asm_write_bytearray adr new_val t1.mem|>)
+          (mc_conf.read_interfer k (adr,new_v,ms2)))`;
 
 (*
   good_init_state:
@@ -296,8 +305,10 @@ val good_init_state_def = Define `
     t.pc = mc_conf.target.get_pc ms /\
     start_pc_ok mc_conf t.pc ∧
     (n2w (2 ** t.align - 1) && t.pc) = 0w /\
-
     interference_ok mc_conf.next_interfer (mc_conf.target.proj mc_conf.prog_addresses) /\
+    (!adr v. interference_ok 
+        (\k st. mc_conf.write_interfer k (adr,v,st))
+        (mc_conf.target.proj mc_conf.prog_addresses) /\
     ffi_interfer_ok t.pc io_regs mc_conf ∧
     ccache_interfer_ok t.pc cc_regs mc_conf ∧
 

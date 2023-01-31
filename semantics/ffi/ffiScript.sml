@@ -100,6 +100,12 @@ Datatype:
   outcome = Success | Resource_limit_hit | FFI_outcome final_event
 End
 
+Definition read_oracle_ok_def:
+    read_oracle_ok (st: ('a, 'ffi) ffi_state) adr n_bytes =
+        let (res, _) = st.read_oracle st.ffi_state adr n_bytes in
+          (LENGTH res = n_bytes)
+End
+
 (* A program can Diverge, Terminate, or Fail. We prove that Fail is
    avoided. For Diverge and Terminate, we keep track of what I/O
    events are valid I/O events for this behaviour. *)
