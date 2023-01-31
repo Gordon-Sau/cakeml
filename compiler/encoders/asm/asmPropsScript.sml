@@ -294,6 +294,7 @@ QED
 Theorem upd_pc_simps[simp]:
    ((asmSem$upd_pc x s).align = s.align) ∧
    ((asmSem$upd_pc x s).mem_domain = s.mem_domain) ∧
+   ((asmSem$upd_pc x s).shared_mem_domain = s.shared_mem_domain) ∧
    ((asmSem$upd_pc x s).failed = s.failed) ∧
    ((asmSem$upd_pc x s).be = s.be) ∧
    ((asmSem$upd_pc x s).mem = s.mem) ∧
@@ -323,7 +324,8 @@ val SND_read_mem_word_consts = Q.prove(
   `!n a s. ((SND (read_mem_word a n s)).be = s.be) /\
             ((SND (read_mem_word a n s)).lr = s.lr) /\
             ((SND (read_mem_word a n s)).align = s.align) /\
-            ((SND (read_mem_word a n s)).mem_domain = s.mem_domain)`,
+            ((SND (read_mem_word a n s)).mem_domain = s.mem_domain) /\
+            ((SND (read_mem_word a n s)).shared_mem_domain = s.shared_mem_domain)`,
   Induct \\ full_simp_tac(srw_ss())[read_mem_word_def,LET_DEF]
   \\ CONV_TAC (DEPTH_CONV PairRules.PBETA_CONV)
   \\ full_simp_tac(srw_ss())[assert_def])
@@ -332,11 +334,13 @@ val write_mem_word_consts = Q.prove(
   `!n a w s. ((write_mem_word a n w s).be = s.be) /\
               ((write_mem_word a n w s).lr = s.lr) /\
               ((write_mem_word a n w s).align = s.align) /\
-              ((write_mem_word a n w s).mem_domain = s.mem_domain)`,
+              ((write_mem_word a n w s).mem_domain = s.mem_domain) /\
+              ((write_mem_word a n w s).shared_mem_domain = s.shared_mem_domain)`,
   Induct \\ full_simp_tac(srw_ss())[write_mem_word_def,LET_DEF,assert_def,upd_mem_def])
 
 Theorem binop_upd_consts[simp]:
    ((binop_upd a b c d x).mem_domain = x.mem_domain) ∧
+   ((binop_upd a b c d x).shared_mem_domain = x.shared_mem_domain) ∧
    ((binop_upd a b c d x).align = x.align) ∧
    ((binop_upd a b c d x).failed = x.failed) ∧
    ((binop_upd a b c d x).mem = x.mem) ∧
@@ -348,6 +352,7 @@ QED
 
 Theorem arith_upd_consts[simp]:
    ((arith_upd a x).mem_domain = x.mem_domain) ∧
+   ((arith_upd a x).shared_mem_domain = x.shared_mem_domain) ∧
    ((arith_upd a x).align = x.align) ∧
    ((arith_upd a x).mem = x.mem) ∧
    ((arith_upd a x).lr = x.lr) ∧
@@ -358,6 +363,7 @@ QED
 
 Theorem fp_upd_consts[simp]:
    ((fp_upd a x).mem_domain = x.mem_domain) ∧
+   ((fp_upd a x).shared_mem_domain = x.shared_mem_domain) ∧
    ((fp_upd a x).align = x.align) ∧
    ((fp_upd a x).mem = x.mem) ∧
    ((fp_upd a x).lr = x.lr) ∧
@@ -371,7 +377,8 @@ Theorem asm_consts[simp]:
    !i w s. ((asm i w s).be = s.be) /\
             ((asm i w s).lr = s.lr) /\
             ((asm i w s).align = s.align) /\
-            ((asm i w s).mem_domain = s.mem_domain)
+            ((asm i w s).mem_domain = s.mem_domain) /\
+            ((asm i w s).shared_mem_domain = s.shared_mem_domain)
 Proof
   Cases
   \\ full_simp_tac(srw_ss())[asm_def,upd_pc_def,jump_to_offset_def,upd_reg_def]
@@ -389,6 +396,7 @@ QED
 Theorem RTC_asm_step_consts:
    RTC (λs1 s2. ∃i. asm_step c s1 i s2) s1 s2
   ⇒ (s2.mem_domain = s1.mem_domain) ∧
+    (s2.shared_mem_domain = s1.shared_mem_domain) ∧
     (s2.lr = s1.lr) ∧
     (s2.align = s1.align) ∧
     (s2.be = s1.be)
@@ -416,19 +424,29 @@ Proof
                 asmSemTheory.assert_def,asmSemTheory.upd_mem_def]
 QED
 
+Theorem write_mem_word_shared_mem_domain:
+    !k b a s. (write_mem_word b k a s).shared_mem_domain = s.shared_mem_domain
+Proof
+    Induct \\ fs [asmSemTheory.write_mem_word_def,
+                  asmSemTheory.assert_def,asmSemTheory.upd_mem_def]
+QED
+
 Theorem write_mem_word_mem_eq:
    !k b a s x.
-      ~(write_mem_word b k a s).failed /\ x ∉ s.mem_domain ==>
+      ~(write_mem_word b k a s).failed /\ x ∉ s.mem_domain /\
+         x ∉ s.shared_mem_domain ==>
       ((write_mem_word b k a s).mem x = s.mem x)
 Proof
   Induct \\ fs [asmSemTheory.write_mem_word_def,APPLY_UPDATE_THM,
                 asmSemTheory.assert_def,asmSemTheory.upd_mem_def]
-  \\ fs [write_mem_word_mem_domain]
+  \\ fs [write_mem_word_mem_domain,write_mem_word_shared_mem_domain]
   \\ rw [] \\ res_tac \\ fs []
 QED
 
 Theorem mem_op_outside_mem_domain:
-   ∀m n a s x. x ∉ s.mem_domain ∧ ¬(mem_op m n a s).failed ⇒
+   ∀m n a s x. x ∉ s.mem_domain ∧
+        x ∉ s.shared_mem_domain ∧
+        ¬(mem_op m n a s).failed ⇒
                ((asmSem$mem_op m n a s).mem x = s.mem x)
 Proof
   Cases \\ rw[asmSemTheory.mem_op_def]
@@ -441,7 +459,8 @@ Proof
 QED
 
 Theorem inst_outside_mem_domain:
-   ∀i. x ∉ s.mem_domain ∧ ¬(inst i s).failed ⇒ ((inst i s).mem x = s.mem x)
+   ∀i. x ∉ s.mem_domain ∧ x ∉ s.shared_mem_domain ∧
+     ¬(inst i s).failed ⇒ ((inst i s).mem x = s.mem x)
 Proof
   Cases \\ rw[asmSemTheory.inst_def]
   >- EVAL_TAC
@@ -449,7 +468,8 @@ Proof
 QED
 
 Theorem asm_outside_mem_domain:
-   ∀i p s x. x ∉ s.mem_domain ∧ ¬(asm i p s).failed ⇒ ((asm i p s).mem x = s.mem x)
+   ∀i p s x. x ∉ s.mem_domain ∧ x ∉ s.shared_mem_domain ∧
+    ¬(asm i p s).failed ⇒ ((asm i p s).mem x = s.mem x)
 Proof
   ho_match_mp_tac asmTheory.asm_induction
   \\ rw[asmSemTheory.asm_def]
@@ -463,7 +483,8 @@ QED
 
 Theorem asm_step_outside_mem_domain:
    asm_step c s1 i s2 ⇒
-   (∀x. x ∉ s1.mem_domain ⇒ (s2.mem x = s1.mem x))
+   (∀x. x ∉ s1.mem_domain ∧ x ∉ s1.shared_mem_domain
+    ⇒ (s2.mem x = s1.mem x))
 Proof
   rw[asmSemTheory.asm_step_def]
   \\ rw[asm_outside_mem_domain]
@@ -471,7 +492,7 @@ QED
 
 Theorem RTC_asm_step_outside_mem_domain:
    ∀s1 s2. RTC (λs1 s2. ∃i. asm_step c s1 i s2) s1 s2
-  ⇒ (∀a. a ∉ s1.mem_domain ⇒ (s2.mem a = s1.mem a))
+  ⇒ (∀a. a ∉ s1.mem_domain ∧ a ∉ s1.shared_mem_domain ⇒ (s2.mem a = s1.mem a))
 Proof
   ho_match_mp_tac RTC_INDUCT
   \\ rw[]
