@@ -4,7 +4,7 @@
   state function of the target architecture.
 *)
 open preamble ffiTheory lab_to_targetTheory wordSemTheory
-     evaluatePropsTheory asmPropsTheory;
+     asmPropsTheory;
 
 val _ = new_theory "targetSem";
 
@@ -16,7 +16,7 @@ val () = Datatype `
 val _ = Datatype `
     mem_access =
         LoadAccess ('a word) num |
-        StoreAccess ('a word) num ('a word) |
+        StoreAccess ('a word) (word8 list) ('a word) |
         NotMemAccess`;
 
 val _ = Datatype `
@@ -246,7 +246,7 @@ val ffi_interfer_ok_def = Define`
             (λa.
              get_reg_value
                (if MEM a mc_conf.callee_saved_regs then NONE else io_regs k (EL index mc_conf.ffi_names) a)
-               (kllllt1.regs a) I);
+               (t1.regs a) I);
            mem := asm_write_bytearray (t1.regs mc_conf.ptr2_reg) new_bytes t1.mem;
            pc := t1.regs (case mc_conf.target.config.link_reg of NONE => 0
                   | SOME n => n)|>)
@@ -280,7 +280,7 @@ val read_interfer_ok_def = Define`
         target_state_rel mc_conf.target
           (t1 with
            <|mem := asm_write_bytearray adr new_val t1.mem|>)
-          (mc_conf.read_interfer k (adr,new_v,ms2)))`;
+          (mc_conf.read_interfer k (adr,new_val,ms2)))`;
 
 (*
   good_init_state:
@@ -308,10 +308,10 @@ val good_init_state_def = Define `
     interference_ok mc_conf.next_interfer (mc_conf.target.proj mc_conf.prog_addresses) /\
     (!adr v. interference_ok
         (\k st. mc_conf.write_interfer k (adr,v,st))
-        (mc_conf.target.proj mc_conf.prog_addresses) /\
+        (mc_conf.target.proj mc_conf.prog_addresses)) /\
     ffi_interfer_ok t.pc io_regs mc_conf ∧
     ccache_interfer_ok t.pc cc_regs mc_conf ∧
-
+    read_interfer_ok mc_conf /\
     (* code memory relation *)
     code_loaded bytes mc_conf ms /\
     bytes_in_mem t.pc bytes t.mem t.mem_domain dm /\
