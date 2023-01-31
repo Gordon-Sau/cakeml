@@ -125,11 +125,11 @@ val evaluate_def = Define `
                     let mc = mc with write_interfer := new_oracle in
                       evaluate mc new_ffi (k-1) ms2
                   else case execute_next mc ffi ms of
-                       | (T,ms,ffi,mc) => evaluate mc ffi (k-1) ms 
+                       | (T,ms,ffi,mc) => evaluate mc ffi (k-1) ms
                        | (F,ms,ffi,_) => (Error,ms,ffi))
              | NotMemAccess =>
                   case execute_next mc ffi ms of
-                  | (T,ms,ffi,mc) => evaluate mc ffi (k-1) ms 
+                  | (T,ms,ffi,mc) => evaluate mc ffi (k-1) ms
                   | (F,ms,ffi,_) => (Error,ms,ffi)
         else (Error,ms,ffi)
       else if mc.target.get_pc ms = mc.halt_pc then
@@ -306,7 +306,7 @@ val good_init_state_def = Define `
     start_pc_ok mc_conf t.pc ∧
     (n2w (2 ** t.align - 1) && t.pc) = 0w /\
     interference_ok mc_conf.next_interfer (mc_conf.target.proj mc_conf.prog_addresses) /\
-    (!adr v. interference_ok 
+    (!adr v. interference_ok
         (\k st. mc_conf.write_interfer k (adr,v,st))
         (mc_conf.target.proj mc_conf.prog_addresses) /\
     ffi_interfer_ok t.pc io_regs mc_conf ∧
