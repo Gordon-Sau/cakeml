@@ -272,16 +272,45 @@ val ccache_interfer_ok_def = Define`
                   | SOME n => n)|>)
         (mc_conf.ccache_interfer k (a1,a2,ms2)))`;
 
+val target_shared_mem_rel_def = Define`
+  target_shared_mem_rel t s ms min_adr max_adr <=>
+    let adrs = {y | (y >= min_adr) /\ (y < max_adr)} in
+        (adrs SUBSET s.shared_mem_domain /\
+        !a. a IN adrs ==> (t.get_byte ms a = s.mem a))`;
+
 val read_interfer_ok_def = Define`
   read_interfer_ok mc_conf <=>
     (!ms2 t1 k adr new_val.
-        target_state_rel mc_conf.target t1 ms2 /\
-        {y | (y >= adr) \/ (y < adr + n2w (LENGTH new_val))} SUBSET mc_conf.shared_addresses ==>
-        target_state_rel mc_conf.target
-          (t1 with
-           <|mem := asm_write_bytearray adr new_val t1.mem|>)
-          (mc_conf.read_interfer k (adr,new_val,ms2)))`;
+       (target_shared_mem_rel mc_conf.target t1 
+            (mc_conf.read_interfer k (adr,new_val,ms2)) adr 
+                (n2w (LENGTHnew_val))))`;
 
+val advance_pc_ok_def = Define`
+  advance_pc_ok mc_conf <=>
+    (!ms2 t1 inst_len.
+        target_state_rel mc_conf.target t1 ms2 ==>
+        target_state_rel mc_conf.target
+          (t1 with <|pc := t1.pc + inst_len|>)
+          (mc_conf.advance_pc ms inst_len))`;
+
+val check_mem_access_ok_def = Define`
+  check_mem_access_ok mc_conf asm_conf <=>
+    (!ms2 t1 asm_i.
+      target_state_rel mc_conf.target t1 ms2 /\
+      bytes_in_memory t1.pc (asm_conf.encode asm_i) t1.mem t1.mem_domain ==>
+      let num2arr = n2warr ms.be in
+      (case asm_i of
+      | (Inst (Mem m r a)) =>
+          let v = read_reg r ms2 in
+          let inst_len = LENGTH asm_conf.encode asm_i in
+          (case m of
+           | Load => LoadAccess a (dimindex (:'a) DIV 8)
+           | Load32 => LoadAccess a 4
+           | Load8 => LoadAccess a 1
+           | Store => StoreAccess a (num2arr v (dimindex (:'a) DIV 8)) inst_len
+           | Store32 => StoreAccess a (num2arr v 4) inst_len
+           | Store8 => StoreAccess a (num2arr v 1) inst_len)
+      | _ => mc_conf.check_mem_access ms2 = NotMemAccess))`;
 (*
   good_init_state:
     intermediate invariant describing how
@@ -312,6 +341,7 @@ val good_init_state_def = Define `
     ffi_interfer_ok t.pc io_regs mc_conf ∧
     ccache_interfer_ok t.pc cc_regs mc_conf ∧
     read_interfer_ok mc_conf /\
+    advance_pc_ok mc_conf /\
     (* code memory relation *)
     code_loaded bytes mc_conf ms /\
     bytes_in_mem t.pc bytes t.mem t.mem_domain dm /\
