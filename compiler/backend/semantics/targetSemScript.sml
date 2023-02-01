@@ -273,8 +273,8 @@ val ccache_interfer_ok_def = Define`
         (mc_conf.ccache_interfer k (a1,a2,ms2)))`;
 
 val target_shared_mem_rel_def = Define`
-  target_shared_mem_rel t s ms min_adr max_adr <=>
-    let adrs = {y | (y >= min_adr) /\ (y < max_adr)} in
+  target_shared_mem_rel t s ms min_adr len <=>
+    let adrs = {min_adr + n2w y | y | y < len} in
         (adrs SUBSET s.shared_mem_domain /\
         !a. a IN adrs ==> (t.get_byte ms a = s.mem a))`;
 
@@ -283,7 +283,7 @@ val read_interfer_ok_def = Define`
     (!ms2 t1 k adr new_val.
        (target_shared_mem_rel mc_conf.target t1 
             (mc_conf.read_interfer k (adr,new_val,ms2)) adr 
-                (n2w (LENGTHnew_val))))`;
+                (LENGTH new_val)))`;
 
 val advance_pc_ok_def = Define`
   advance_pc_ok mc_conf <=>
@@ -293,12 +293,17 @@ val advance_pc_ok_def = Define`
           (t1 with <|pc := t1.pc + inst_len|>)
           (mc_conf.advance_pc ms inst_len))`;
 
+val n2w_arr_def = Define`
+  (n2w_arr F n 0 = []) /\
+  (n2w_arr F n (Suc l) = ((w2w n)::(n2w_arr F (n >>> 8) l))) /\
+  (n2w_arr T n l = REVERSE (n2w_arr F l)`;
+
 val check_mem_access_ok_def = Define`
   check_mem_access_ok mc_conf asm_conf <=>
     (!ms2 t1 asm_i.
       target_state_rel mc_conf.target t1 ms2 /\
       bytes_in_memory t1.pc (asm_conf.encode asm_i) t1.mem t1.mem_domain ==>
-      let num2arr = n2warr ms.be in
+      let num2arr = n2w_arr ms.be in
       (case asm_i of
       | (Inst (Mem m r a)) =>
           let v = read_reg r ms2 in
