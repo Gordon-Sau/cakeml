@@ -24,17 +24,12 @@ End
 Type oracle_function = “:'ffi -> word8 list -> word8 list -> 'ffi oracle_result”
 Type oracle = “:string -> 'ffi oracle_function”
 
-Type read_oracle = “: 'ffi -> 'a word -> num -> word8 list # 'ffi”
-Type write_oracle = “: 'ffi -> 'a word -> word8 list -> 'ffi”
-
 (* An I/O event, IO_event s bytes bytes2, represents the call of FFI function s with
  * immutable input bytes and mutable input map fst bytes2,
  * returning map snd bytes2 in the mutable array. *)
 
 Datatype:
-  io_event = IO_event string (word8 list) ((word8 # word8) list) |
-      Mapped_read ('a word) (word8 list) |
-      Mapped_write ('a word) (word8 list)
+  io_event = IO_event string (word8 list) ((word8 # word8) list)
 End
 
 Datatype:
@@ -45,25 +40,22 @@ Datatype:
   ffi_state =
   <| oracle      : 'ffi oracle
    ; ffi_state   : 'ffi
-   ; io_events   : ('a io_event) list
-   ; read_oracle : ('a, 'ffi) read_oracle
-   ; write_oracle: ('a, 'ffi) write_oracle
+   ; io_events   : io_event list
    |>
 End
 
 Definition initial_ffi_state_def:
   initial_ffi_state oc (ffi:'ffi) ro wo =
-    <| oracle := oc; ffi_state := ffi; io_events := [];
-    read_oracle := ro; write_oracle := wo |>
+    <| oracle := oc; ffi_state := ffi; io_events := [] |>
 End
 
 Datatype:
-  ffi_result = FFI_return (('a,'ffi) ffi_state) (word8 list)
+  ffi_result = FFI_return ('ffi ffi_state) (word8 list)
              | FFI_final final_event
 End
 
 Definition call_FFI_def:
-  call_FFI (st: ('a,'ffi) ffi_state) s conf bytes =
+  call_FFI (st: 'ffi ffi_state) s conf bytes =
     if s ≠ "" then
       case st.oracle s st.ffi_state conf bytes of
         Oracle_return ffi' bytes' =>
@@ -80,30 +72,8 @@ Definition call_FFI_def:
     else FFI_return st bytes
 End
 
-Definition mapped_read_def:
-    mapped_read (st: ('a,'ffi) ffi_state) adr n_bytes =
-        let (res, new_state) = st.read_oracle st.ffi_state adr n_bytes in
-          (st with
-           <| ffi_state := new_state;
-              io_events := st.io_events ++ [Mapped_read adr res]|>,
-          res)
-End
-
-Definition mapped_write_def:
-    mapped_write (st: ('a,'ffi) ffi_state) adr v =
-        (st with
-         <| ffi_state := st.write_oracle st.ffi_state adr v;
-            io_events := st.io_events ++ [Mapped_write adr v]|>)
-End
-
 Datatype:
   outcome = Success | Resource_limit_hit | FFI_outcome final_event
-End
-
-Definition read_oracle_ok_def:
-    read_oracle_ok (st: ('a, 'ffi) ffi_state) adr n_bytes =
-        let (res, _) = st.read_oracle st.ffi_state adr n_bytes in
-          (LENGTH res = n_bytes)
 End
 
 (* A program can Diverge, Terminate, or Fail. We prove that Fail is
@@ -114,11 +84,11 @@ Datatype:
     (* There cannot be any non-returning FFI calls in a diverging
        exeuction. The list of I/O events can be finite or infinite,
        hence the llist (lazy list) type. *)
-    Diverge (('a io_event) llist)
+    Diverge (io_event llist)
     (* Terminating executions can only perform a finite number of
        FFI calls. The execution can be terminated by a non-returning
        FFI call. *)
-  | Terminate outcome (('a io_event) list)
+  | Terminate outcome (io_event list)
     (* Failure is a behaviour which we prove cannot occur for any
        well-typed program. *)
   | Fail

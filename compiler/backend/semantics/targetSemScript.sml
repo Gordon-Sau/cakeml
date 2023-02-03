@@ -14,10 +14,10 @@ val () = Datatype `
   machine_result = Halt outcome | Error | TimeOut `;
 
 val _ = Datatype `
-    mem_access =
-        LoadAccess ('a word) num |
-        StoreAccess ('a word) (word8 list) ('a word) |
-        NotMemAccess`;
+    share_mem_access =
+        ShareLoad ('a word) num |
+        ShareStore ('a word) (word8 list) ('a word) |
+        NotShareMem`;
 
 val _ = Datatype `
   machine_config =
@@ -45,7 +45,7 @@ val _ = Datatype `
     ; shared_addresses : ('a word) set
     (* checks if the instruction to execute is load/store instructions and
     * gets the relevant address and value *)
-    ; check_mem_access : 'b -> 'a mem_access
+    ; check_mem_access : 'b -> 'a share_mem_access
     ; read_interfer : num -> 'a word # (word8 list) # 'b -> 'b
     ; write_interfer : num -> 'a word # (word8 list) # 'b -> 'b
     ; advance_pc : 'b -> 'a word -> 'b
@@ -99,35 +99,24 @@ val evaluate_def = Define `
             mc.target.config (mc.target.get_pc ms)
             (mc.target.get_byte ms) mc.prog_addresses then
               case mc.check_mem_access ms of
-              | LoadAccess adr n_bytes =>
-                  (if adr IN mc.shared_addresses
-                  then
-                    let (new_ffi, ret) = mapped_read ffi adr n_bytes in
-                    let (ms1, new_oracle) =
-                      apply_oracle mc.read_interfer (adr,ret,ms) in
-                    let mc = mc with read_interfer := new_oracle in
-                      case execute_next mc new_ffi ms1 of
-                      | (T,ms,ffi,mc) => evaluate mc ffi (k-1) ms
-                      | (F,ms,ffi,_) => (Error,ms,ffi)
-                  else
-                    case execute_next mc ffi ms of
+              | ShareLoad adr n_bytes =>
+                  let (new_ffi, ret) = mapped_read ffi adr n_bytes in
+                  let (ms1, new_oracle) =
+                    apply_oracle mc.read_interfer (adr,ret,ms) in
+                  let mc = mc with read_interfer := new_oracle in
+                    case execute_next mc new_ffi ms1 of
                     | (T,ms,ffi,mc) => evaluate mc ffi (k-1) ms
-                    | (F,ms,ffi,_) => (Error,ms,ffi))
-              | StoreAccess adr v inst_len =>
-                  (if adr IN mc.shared_addresses
-                  then
-                    (* just advancing pc is enough as whenever we read
-                    * shared memory, we ask the oracle *)
-                    let ms1 = mc.advance_pc ms inst_len in
-                    let new_ffi = mapped_write ffi adr v in
-                    let (ms2, new_oracle) =
-                      apply_oracle mc.write_interfer (adr,v,ms1) in
-                    let mc = mc with write_interfer := new_oracle in
-                      evaluate mc new_ffi (k-1) ms2
-                  else case execute_next mc ffi ms of
-                       | (T,ms,ffi,mc) => evaluate mc ffi (k-1) ms
-                       | (F,ms,ffi,_) => (Error,ms,ffi))
-             | NotMemAccess =>
+                    | (F,ms,ffi,_) => (Error,ms,ffi)
+              | ShareStore adr v inst_len =>
+                  (* just advancing pc is enough as whenever we read
+                   * shared memory, we ask the oracle *)
+                  let ms1 = mc.advance_pc ms inst_len in
+                  let new_ffi = mapped_write ffi adr v in
+                  let (ms2, new_oracle) =
+                    apply_oracle mc.write_interfer (adr,v,ms1) in
+                  let mc = mc with write_interfer := new_oracle in
+                    evaluate mc new_ffi (k-1) ms2
+             | NotShareMem =>
                   case execute_next mc ffi ms of
                   | (T,ms,ffi,mc) => evaluate mc ffi (k-1) ms
                   | (F,ms,ffi,_) => (Error,ms,ffi)
@@ -306,16 +295,22 @@ val check_mem_access_ok_def = Define`
       let num2arr = n2w_arr ms.be in
       (case asm_i of
       | (Inst (Mem m r a)) =>
+          (* TODO: check shared memory: if one of the address is in shared
+          * memory. Concern: Shared | not shared | shared. oracle should only
+          * update shared memory. Also check other places!*)
           let v = read_reg r ms2 in
           let inst_len = LENGTH asm_conf.encode asm_i in
           (case m of
-           | Load => LoadAccess a (dimindex (:'a) DIV 8)
-           | Load32 => LoadAccess a 4
-           | Load8 => LoadAccess a 1
-           | Store => StoreAccess a (num2arr v (dimindex (:'a) DIV 8)) inst_len
-           | Store32 => StoreAccess a (num2arr v 4) inst_len
-           | Store8 => StoreAccess a (num2arr v 1) inst_len)
+           | Load => ShareLoad a (dimindex (:'a) DIV 8)
+           | Load32 => ShareLoad a 4
+           | Load8 => ShareLoad a 1
+           | Store => ShareStore a (num2arr v (dimindex (:'a) DIV 8)) inst_len
+           | Store32 => ShareStore a (num2arr v 4) inst_len
+           | Store8 => ShareStore a (num2arr v 1) inst_len)
       | _ => mc_conf.check_mem_access ms2 = NotMemAccess))`;
+
+val mapped_read_def = Define``;
+val mapped_write_def = Define``;
 (*
   good_init_state:
     intermediate invariant describing how
