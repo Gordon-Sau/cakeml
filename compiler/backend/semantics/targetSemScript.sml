@@ -4,7 +4,7 @@
   state function of the target architecture.
 *)
 open preamble ffiTheory lab_to_targetTheory wordSemTheory
-     asmPropsTheory;
+     evaluatePropsTheory asmPropsTheory;
 
 val _ = new_theory "targetSem";
 
@@ -15,7 +15,10 @@ val () = Datatype `
 
 val _ = Datatype `
     share_mem_access =
+        (* address and the number of bytes to be loaded *)
         ShareLoad ('a word) num |
+        (* address, the list of bytes to be stroed and
+        * the length of the store instruction *)
         ShareStore ('a word) (word8 list) ('a word) |
         NotShareMem`;
 
@@ -75,6 +78,55 @@ val read_ffi_bytearrays_def = Define`
   read_ffi_bytearrays mc ms =
     (read_ffi_bytearray mc mc.ptr_reg mc.len_reg ms,
      read_ffi_bytearray mc mc.ptr2_reg mc.len2_reg ms)`;
+
+(* turn ('a word) to a list of ('b word) in little endian *)
+val w2wlist_le_def = Define`
+  (w2wlist_le (w: 'a word) 0 = []) /\
+  (w2wlist_le w (Suc n) = (w2w w):w2wlist_le (w >> 8) n)`;
+
+val w2wlist_def = Define`
+  (w2wlist F w n = w2w_list_le w n) /\
+  (w2wlist T w n = REVERSE ( w2w_list_le w n))`;
+
+(* NOTE: ignore endianess when updating ffi *)
+val addr2w8list_def = Define`
+  addr2w8list (adr: 'a word) = (w2wlist_le adr (dimindex (:'a) DIV 8) :word8)`;
+
+val zip_with_padding_def = Define`
+  zip_with_padding l1 l2 =
+    let max_len = MAX (LENGTH l1) (LENGTH l2) in
+    ZIP (PAD_RIGHT 0w max_len l1) (PAD_RIGHT 0w max_len l2)`;
+
+(* update the ffi state when doing memory-mapped io *)
+(* NOTE: oracle should never return Oracle_final for mapped_read/write *)
+val mapped_read_def = Define`
+  mapped_read (ffi: 'ffi ffi_state) (adr: 'a word) n_bytes =
+    let adr_w8list = addr2w8list adr in
+    let word_len = dimindex (:'a) DIV 8 in
+    case ffi.oracle "MappedRead" ffi.ffi_state [word_len,n_bytes] adr_w8list of
+      Oracle_return new_st res =>
+        (ffi wtih
+         <| ffi_state := new_st;
+            io_events := ffi.io_events ++
+              [IO_event "MappedRead" [word_len,n_bytes]
+                 (zip_with_padding (adr_w8list, res)] |>,
+        res)
+    | Oracle_final outcome => (ffi, [])`; 
+
+val mapped_write_def = Define`
+  mapped_write (ffi: 'ffi ffi_state) adr v =
+    let n_bytes = n2w (LENGTH v) in
+    let word_len = dimindex (:'a) DIV 8 in
+    let adr_w8list = addr2w8list adr in
+    let bytes = adr_w8list ++ v in
+    case ffi.oracle "MappedWrite" ffi.ffi_state [word_len,n_bytes] bytes of
+      Oracle_return new_st res =>
+        (ffi with
+         <| ffi_state := new_st;
+            io_events := ffi.io_events ++
+              [IO_event "MappedWrite" [word_len,n_bytes]
+                 (ZIP (bytes,bytes))] |>
+    | Oracle_final outcome => ffi`;
 
 val execute_next_def = Define `
     execute_next mc (ffi:('a,'ffi) ffi_state) (ms: 'b)  =
@@ -270,8 +322,8 @@ val target_shared_mem_rel_def = Define`
 val read_interfer_ok_def = Define`
   read_interfer_ok mc_conf <=>
     (!ms2 t1 k adr new_val.
-       (target_shared_mem_rel mc_conf.target t1 
-            (mc_conf.read_interfer k (adr,new_val,ms2)) adr 
+       (target_shared_mem_rel mc_conf.target t1
+            (mc_conf.read_interfer k (adr,new_val,ms2)) adr
                 (LENGTH new_val)))`;
 
 val advance_pc_ok_def = Define`
@@ -282,35 +334,32 @@ val advance_pc_ok_def = Define`
           (t1 with <|pc := t1.pc + inst_len|>)
           (mc_conf.advance_pc ms inst_len))`;
 
-val n2w_arr_def = Define`
-  (n2w_arr F n 0 = []) /\
-  (n2w_arr F n (Suc l) = ((w2w n)::(n2w_arr F (n >>> 8) l))) /\
-  (n2w_arr T n l = REVERSE (n2w_arr F l)`;
+val contain_shared_mem_def = Define`
+  contain_shared_mem addr n_bytes s =
+    
+`;
 
 val check_mem_access_ok_def = Define`
   check_mem_access_ok mc_conf asm_conf <=>
     (!ms2 t1 asm_i.
       target_state_rel mc_conf.target t1 ms2 /\
       bytes_in_memory t1.pc (asm_conf.encode asm_i) t1.mem t1.mem_domain ==>
-      let num2arr = n2w_arr ms.be in
+      let wlist = w2wlist ms.be in
       (case asm_i of
       | (Inst (Mem m r a)) =>
           (* TODO: check shared memory: if one of the address is in shared
-          * memory. Concern: Shared | not shared | shared. oracle should only
-          * update shared memory. Also check other places!*)
+          * memory. Consider: not shared | shared*)
           let v = read_reg r ms2 in
           let inst_len = LENGTH asm_conf.encode asm_i in
           (case m of
            | Load => ShareLoad a (dimindex (:'a) DIV 8)
            | Load32 => ShareLoad a 4
            | Load8 => ShareLoad a 1
-           | Store => ShareStore a (num2arr v (dimindex (:'a) DIV 8)) inst_len
-           | Store32 => ShareStore a (num2arr v 4) inst_len
-           | Store8 => ShareStore a (num2arr v 1) inst_len)
+           | Store => ShareStore a (wlist v (dimindex (:'a) DIV 8)) inst_len
+           | Store32 => ShareStore a (wlist v 4) inst_len
+           | Store8 => ShareStore a (wlist v 1) inst_len)
       | _ => mc_conf.check_mem_access ms2 = NotMemAccess))`;
 
-val mapped_read_def = Define``;
-val mapped_write_def = Define``;
 (*
   good_init_state:
     intermediate invariant describing how
@@ -334,6 +383,7 @@ val good_init_state_def = Define `
     t.pc = mc_conf.target.get_pc ms /\
     start_pc_ok mc_conf t.pc ∧
     (n2w (2 ** t.align - 1) && t.pc) = 0w /\
+
     interference_ok mc_conf.next_interfer (mc_conf.target.proj mc_conf.prog_addresses) /\
     (!adr v. interference_ok
         (\k st. mc_conf.write_interfer k (adr,v,st))
