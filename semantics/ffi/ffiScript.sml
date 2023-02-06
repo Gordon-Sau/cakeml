@@ -45,7 +45,7 @@ Datatype:
 End
 
 Definition initial_ffi_state_def:
-  initial_ffi_state oc (ffi:'ffi) ro wo =
+  initial_ffi_state oc (ffi:'ffi) =
     <| oracle := oc; ffi_state := ffi; io_events := [] |>
 End
 
@@ -55,7 +55,7 @@ Datatype:
 End
 
 Definition call_FFI_def:
-  call_FFI (st: 'ffi ffi_state) s conf bytes =
+  call_FFI (st:'ffi ffi_state) s conf bytes =
     if s ≠ "" then
       case st.oracle s st.ffi_state conf bytes of
         Oracle_return ffi' bytes' =>
