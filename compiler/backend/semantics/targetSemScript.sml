@@ -16,7 +16,7 @@ val () = Datatype `
 val _ = Datatype `
     share_mem_access =
         (* address and the number of bytes to be loaded *)
-        ShareLoad ('a word) num |
+        ShareLoad ('a word) word8 |
         (* address, the list of bytes to be stroed and
         * the length of the store instruction *)
         ShareStore ('a word) (word8 list) ('a word) |
@@ -81,55 +81,55 @@ val read_ffi_bytearrays_def = Define`
 
 (* turn ('a word) to a list of ('b word) in little endian *)
 val w2wlist_le_def = Define`
-  (w2wlist_le (w: 'a word) 0 = []) /\
-  (w2wlist_le w (Suc n) = (w2w w):w2wlist_le (w >> 8) n)`;
+  (w2wlist_le w (0) = []) /\
+  (w2wlist_le w (SUC n) = (w2w w)::w2wlist_le (w >>> 8) n)`;
 
 val w2wlist_def = Define`
-  (w2wlist F w n = w2w_list_le w n) /\
-  (w2wlist T w n = REVERSE ( w2w_list_le w n))`;
+  (w2wlist F w n = w2wlist_le w n) /\
+  (w2wlist T w n = REVERSE ( w2wlist_le w n))`;
 
 (* NOTE: ignore endianess when updating ffi *)
 val addr2w8list_def = Define`
-  addr2w8list (adr: 'a word) = (w2wlist_le adr (dimindex (:'a) DIV 8) :word8)`;
+  addr2w8list (adr: 'a word) = w2wlist_le adr (dimindex (:'a) DIV 8)`;
 
 val zip_with_padding_def = Define`
   zip_with_padding l1 l2 =
     let max_len = MAX (LENGTH l1) (LENGTH l2) in
-    ZIP (PAD_RIGHT 0w max_len l1) (PAD_RIGHT 0w max_len l2)`;
+    ZIP ((PAD_RIGHT 0w max_len l1), (PAD_RIGHT 0w max_len l2))`;
 
 (* update the ffi state when doing memory-mapped io *)
 (* NOTE: oracle should never return Oracle_final for mapped_read/write *)
 val mapped_read_def = Define`
-  mapped_read (ffi: 'ffi ffi_state) (adr: 'a word) n_bytes =
+  mapped_read (ffi: 'b ffi_state) (adr: 'a word) n_bytes =
     let adr_w8list = addr2w8list adr in
-    let word_len = dimindex (:'a) DIV 8 in
-    case ffi.oracle "MappedRead" ffi.ffi_state [word_len,n_bytes] adr_w8list of
-      Oracle_return new_st res =>
-        (ffi wtih
-         <| ffi_state := new_st;
-            io_events := ffi.io_events ++
-              [IO_event "MappedRead" [word_len,n_bytes]
-                 (zip_with_padding (adr_w8list, res)] |>,
-        res)
-    | Oracle_final outcome => (ffi, [])`; 
-
-val mapped_write_def = Define`
-  mapped_write (ffi: 'ffi ffi_state) adr v =
-    let n_bytes = n2w (LENGTH v) in
-    let word_len = dimindex (:'a) DIV 8 in
-    let adr_w8list = addr2w8list adr in
-    let bytes = adr_w8list ++ v in
-    case ffi.oracle "MappedWrite" ffi.ffi_state [word_len,n_bytes] bytes of
+    let word_len = n2w (dimindex (:'a) DIV 8) in
+    case ffi.oracle "MappedRead" ffi.ffi_state [word_len;n_bytes] adr_w8list of
       Oracle_return new_st res =>
         (ffi with
          <| ffi_state := new_st;
             io_events := ffi.io_events ++
-              [IO_event "MappedWrite" [word_len,n_bytes]
+              [IO_event "MappedRead" [word_len;n_bytes]
+                 (zip_with_padding adr_w8list res)] |>,
+        res)
+    | Oracle_final outcome => (ffi, [])`;
+
+val mapped_write_def = Define`
+  mapped_write (ffi: 'ffi ffi_state) (adr: 'a word) v =
+    let n_bytes = n2w (LENGTH v) in
+    let word_len = n2w (dimindex (:'a) DIV 8) in
+    let adr_w8list = addr2w8list adr in
+    let bytes = adr_w8list ++ v in
+    case ffi.oracle "MappedWrite" ffi.ffi_state [word_len;n_bytes] bytes of
+      Oracle_return new_st res =>
+        ffi with
+         <| ffi_state := new_st;
+            io_events := ffi.io_events ++
+              [IO_event "MappedWrite" [word_len;n_bytes]
                  (ZIP (bytes,bytes))] |>
     | Oracle_final outcome => ffi`;
 
 val execute_next_def = Define `
-    execute_next mc (ffi:('a,'ffi) ffi_state) (ms: 'b)  =
+    execute_next mc (ffi:'ffi ffi_state) (ms: 'b)  =
       let ms1 = mc.target.next ms in
       let (ms2,new_oracle) = apply_oracle mc.next_interfer ms1 in
       let mc = mc with next_interfer := new_oracle in
@@ -143,7 +143,7 @@ val execute_next_def = Define `
            (F,ms,ffi,mc)`;
 
 val evaluate_def = Define `
-  evaluate mc (ffi:('a,'ffi) ffi_state) k (ms:'b) =
+  evaluate mc (ffi:'ffi ffi_state) k (ms:'b) =
     if k = 0 then (TimeOut,ms,ffi)
     else
       if mc.target.get_pc ms IN mc.prog_addresses then
@@ -156,18 +156,20 @@ val evaluate_def = Define `
                   let (ms1, new_oracle) =
                     apply_oracle mc.read_interfer (adr,ret,ms) in
                   let mc = mc with read_interfer := new_oracle in
-                    case execute_next mc new_ffi ms1 of
+                    (case execute_next mc new_ffi ms1 of
                     | (T,ms,ffi,mc) => evaluate mc ffi (k-1) ms
-                    | (F,ms,ffi,_) => (Error,ms,ffi)
+                    | (F,ms,ffi,_) => (Error,ms,ffi))
               | ShareStore adr v inst_len =>
                   (* just advancing pc is enough as whenever we read
                    * shared memory, we ask the oracle *)
-                  let ms1 = mc.advance_pc ms inst_len in
-                  let new_ffi = mapped_write ffi adr v in
-                  let (ms2, new_oracle) =
-                    apply_oracle mc.write_interfer (adr,v,ms1) in
-                  let mc = mc with write_interfer := new_oracle in
-                    evaluate mc new_ffi (k-1) ms2
+                  if aligned (LOG2 (LENGTH v)) adr then
+                    let ms1 = mc.advance_pc ms inst_len in
+                    let new_ffi = mapped_write ffi adr v in
+                    let (ms2, new_oracle) =
+                      apply_oracle mc.write_interfer (adr,v,ms1) in
+                    let mc = mc with write_interfer := new_oracle in
+                      evaluate mc new_ffi (k-1) ms2
+                  else (Error,ms,ffi)
              | NotShareMem =>
                   case execute_next mc ffi ms of
                   | (T,ms,ffi,mc) => evaluate mc ffi (k-1) ms
@@ -221,6 +223,30 @@ val code_loaded_def = Define`
       (\a. if a IN mc.prog_addresses
            then SOME (mc.target.get_byte ms a) else NONE) = SOME bytes`;
 
+val check_mem_access_ok_def = Define`
+  check_mem_access_ok (mc_conf: ('a,'b,'c) machine_config) <=>
+    !ms2 t1 asm_i asm_conf.
+      target_state_rel mc_conf.target t1 ms2 /\
+      bytes_in_memory t1.pc (asm_conf.encode asm_i) t1.mem t1.mem_domain ==>
+      let w2list = w2wlist t1.be in
+      let (max_n_bytes: word8) = n2w (dimindex (:'a) DIV 8) in
+      mc_conf.check_mem_access ms2 =
+      (case asm_i of
+      | (Inst (Mem m r a)) =>
+          let a = addr a t1 in
+          (if a IN mc_conf.shared_addresses then
+            let v = read_reg r t1 in
+            let inst_len = n2w (LENGTH (asm_conf.encode asm_i)) in
+            (case m of
+             | Load => ShareLoad a max_n_bytes
+             (*| Load32 => ShareLoad a 4w*)
+             | Load8 => ShareLoad a 1w
+             | Store => ShareStore a (w2list v (w2n max_n_bytes)) inst_len
+             (*| Store32 => ShareStore a (w2list v 4) inst_len*)
+             | Store8 => ShareStore a (w2list v 1) inst_len)
+          else NotShareMem)
+      | _ => NotShareMem)`;
+
 (* target_configured: target and mc_conf are compatible
    will be proved at the top-level by creating an appropriate t *)
 val target_configured_def = Define`
@@ -235,7 +261,11 @@ val target_configured_def = Define`
     t.align = mc_conf.target.config.code_alignment /\
     t.mem_domain = mc_conf.prog_addresses /\
     t.shared_mem_domain = mc_conf.shared_addresses /\
-    mc_conf.prog_addresses ∩ mc_conf.shared_addresses = ∅ /\
+    DISJOINT mc_conf.prog_addresses mc_conf.shared_addresses /\
+    check_mem_access_ok mc_conf /\
+    ~ (MEM "MappedWrite" mc_conf.ffi_names) /\
+    ~ (MEM "MappedRead" mc_conf.ffi_names) /\
+
     (* byte_aligned (t.regs mc_conf.ptr_reg) ∧ *)
     (* byte_aligned (t.regs mc_conf.ptr2_reg) ∧ *)
     (case mc_conf.target.config.link_reg of NONE => T | SOME r => t.lr = r)
@@ -313,18 +343,37 @@ val ccache_interfer_ok_def = Define`
                   | SOME n => n)|>)
         (mc_conf.ccache_interfer k (a1,a2,ms2)))`;
 
-val target_shared_mem_rel_def = Define`
-  target_shared_mem_rel t s ms min_adr len <=>
-    let adrs = {min_adr + n2w y | y | y < len} in
-        (adrs SUBSET s.shared_mem_domain /\
-        !a. a IN adrs ==> (t.get_byte ms a = s.mem a))`;
+val oracle_mapped_read_ok_def = Define`
+  oracle_mapped_read_ok (ffi: 'ffi ffi_state) =
+    (* the oracle should never return Oracle_final for mapped_read *)
+    !l nb bytes. LENGTH bytes = w2n l ==>
+    ?st res.
+      ffi.oracle "MappedRead" ffi.ffi_state [l;nb] bytes =
+        Oracle_return st res /\
+      LENGTH res = w2n nb`;
+
+val oracle_mapped_write_ok_def = Define`
+  oracle_mapped_write_ok (ffi: 'ffi ffi_state) =
+    !l nb bytes. LENGTH bytes = w2n l + w2n nb ==>
+    ?st res.
+      ffi.oracle "MappedWrite" ffi.ffi_state [l;nb] bytes = Oracle_return st res`;
+
+val target_addr_rel_def = Define`
+  target_addr_rel t s ms min_adr len <=>
+    !a. a IN {min_adr + n2w y | y | y < len} ==>
+      (t.get_byte ms a = s.mem a)`;
 
 val read_interfer_ok_def = Define`
   read_interfer_ok mc_conf <=>
-    (!ms2 t1 k adr new_val.
-       (target_shared_mem_rel mc_conf.target t1
-            (mc_conf.read_interfer k (adr,new_val,ms2)) adr
-                (LENGTH new_val)))`;
+    !ms2 t1 k adr new_val.
+      target_state_rel mc_conf.target t1 ms2 ==>
+       (target_addr_rel mc_conf.target
+          (t1 with
+            <| mem := asm_write_bytearray adr new_val t1.mem |>)
+          (mc_conf.read_interfer k (adr,new_val,ms2)) adr
+            (LENGTH new_val)) /\
+       (target_state_rel mc_conf.target t1
+          (mc_conf.read_interfer k (adr,new_val,ms2)))`;
 
 val advance_pc_ok_def = Define`
   advance_pc_ok mc_conf <=>
@@ -332,33 +381,7 @@ val advance_pc_ok_def = Define`
         target_state_rel mc_conf.target t1 ms2 ==>
         target_state_rel mc_conf.target
           (t1 with <|pc := t1.pc + inst_len|>)
-          (mc_conf.advance_pc ms inst_len))`;
-
-val contain_shared_mem_def = Define`
-  contain_shared_mem addr n_bytes s =
-    
-`;
-
-val check_mem_access_ok_def = Define`
-  check_mem_access_ok mc_conf asm_conf <=>
-    (!ms2 t1 asm_i.
-      target_state_rel mc_conf.target t1 ms2 /\
-      bytes_in_memory t1.pc (asm_conf.encode asm_i) t1.mem t1.mem_domain ==>
-      let wlist = w2wlist ms.be in
-      (case asm_i of
-      | (Inst (Mem m r a)) =>
-          (* TODO: check shared memory: if one of the address is in shared
-          * memory. Consider: not shared | shared*)
-          let v = read_reg r ms2 in
-          let inst_len = LENGTH asm_conf.encode asm_i in
-          (case m of
-           | Load => ShareLoad a (dimindex (:'a) DIV 8)
-           | Load32 => ShareLoad a 4
-           | Load8 => ShareLoad a 1
-           | Store => ShareStore a (wlist v (dimindex (:'a) DIV 8)) inst_len
-           | Store32 => ShareStore a (wlist v 4) inst_len
-           | Store8 => ShareStore a (wlist v 1) inst_len)
-      | _ => mc_conf.check_mem_access ms2 = NotMemAccess))`;
+          (mc_conf.advance_pc ms2 inst_len))`;
 
 (*
   good_init_state:
@@ -373,7 +396,7 @@ val good_init_state_def = Define `
   good_init_state
     (mc_conf: ('a,'state,'b) machine_config) ms bytes
     cbspace
-    t m dm
+    t m dm sdm
     io_regs cc_regs
     <=>
     target_state_rel mc_conf.target t ms /\
@@ -401,6 +424,11 @@ val good_init_state_def = Define `
     (!a. ∃w.
       t.mem a = get_byte a w mc_conf.target.config.big_endian ∧
       m (byte_align a) = Word w) /\
+
+    (* shared memory domain relation *)
+    sdm = t.shared_mem_domain /\
+    (!a. byte_align a IN sdm ==> a IN sdm) /\
+
     (* code buffer constraints *)
     (∀n. n < cbspace ⇒
       n2w (n + LENGTH bytes) + t.pc ∈ t.mem_domain  ∧
@@ -415,9 +443,9 @@ val good_init_state_def = Define `
 *)
 val installed_def = Define`
   installed bytes cbspace bitmaps data_sp ffi_names (r1,r2) mc_conf ms ⇔
-    ∃t m io_regs cc_regs bitmap_ptr bitmaps_dm.
+    ∃t m io_regs cc_regs bitmap_ptr bitmaps_dm sdm.
       let heap_stack_dm = { w | t.regs r1 <=+ w ∧ w <+ t.regs r2 } in
-      good_init_state mc_conf ms bytes cbspace t m (heap_stack_dm ∪ bitmaps_dm) io_regs cc_regs ∧
+      good_init_state mc_conf ms bytes cbspace t m (heap_stack_dm ∪ bitmaps_dm) sdm io_regs cc_regs ∧
       byte_aligned (t.regs r1) /\
       byte_aligned (t.regs r2) /\
       byte_aligned bitmap_ptr /\
