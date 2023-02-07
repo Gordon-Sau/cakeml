@@ -253,16 +253,59 @@ Proof
   IF_CASES_TAC >> full_simp_tac(srw_ss())[] >>
   simp[Once evaluate_def,SimpR``$==>``] >>
   IF_CASES_TAC >> full_simp_tac(srw_ss())[apply_oracle_def] >- (
-    IF_CASES_TAC >> full_simp_tac(srw_ss())[] >>
-    IF_CASES_TAC >> full_simp_tac(srw_ss())[] >>
-    first_x_assum(qspec_then`k1`mp_tac) >> simp[] ) >>
-  IF_CASES_TAC >> full_simp_tac(srw_ss())[] >>
-  IF_CASES_TAC >> fs[] \\
-  BasicProvers.CASE_TAC >> full_simp_tac(srw_ss())[] >>
-  BasicProvers.CASE_TAC >> full_simp_tac(srw_ss())[] >>
-  BasicProvers.CASE_TAC >> full_simp_tac(srw_ss())[] >>
-  BasicProvers.CASE_TAC >> full_simp_tac(srw_ss())[] >>
-  BasicProvers.CASE_TAC >> full_simp_tac(srw_ss())[]
+    every_case_tac >> full_simp_tac(srw_ss())[] >| [
+      Cases_on `mapped_read ffi c c0` >>
+      every_case_tac >> full_simp_tac(srw_ss())[] >>
+      every_case_tac >> full_simp_tac(srw_ss())[] >>
+      first_x_assum(qspecl_then [`k1`, `r`, `ms1`, `st1`] mp_tac) >> simp[], 
+      first_x_assum(qspecl_then [`k1`, `r`, `ms1`, `st1`] mp_tac) >> simp[],
+      first_x_assum(qspecl_then [`k1`, `r`, `ms1`, `st1`] mp_tac) >> simp[],
+      Cases_on `mapped_read ffi c c0` >>
+      every_case_tac >> full_simp_tac(srw_ss())[] >>
+      every_case_tac >> full_simp_tac(srw_ss())[] >>
+      first_x_assum(qspecl_then [`k1`, `r`, `ms1`, `st1`] mp_tac) >> simp[], 
+      first_x_assum(qspecl_then [`k1`, `r`, `ms1`, `st1`] mp_tac) >> simp[]
+    ]) >>
+    every_case_tac >> full_simp_tac(srw_ss())[] >>
+    first_x_assum(qspecl_then [`k1`, `r`, `ms1`, `st1`] mp_tac) >> simp[]
+QED
+
+Theorem mapped_read_io_events_mono:
+  !ffi ad nb ffi' r.
+    mapped_read ffi ad nb = (ffi',r) ==>
+    ffi.io_events ≼ ffi'.io_events
+Proof
+  rpt strip_tac >>
+  drule EQ_SYM >>
+  strip_tac >>
+  full_simp_tac(srw_ss())[mapped_read_def] >>
+  fs[] >>
+  every_case_tac >> full_simp_tac(srw_ss())[]
+QED
+
+Theorem mapped_write_io_events_mono:
+  !ffi ad v ffi'.
+    mapped_write ffi ad v = ffi' ==>
+    ffi.io_events ≼ ffi'.io_events
+Proof
+  rpt strip_tac >>
+  drule EQ_SYM >>
+  strip_tac >>
+  full_simp_tac(srw_ss())[mapped_write_def] >>
+  fs[] >>
+  every_case_tac >> full_simp_tac(srw_ss())[]
+QED
+
+Theorem execute_next_ffi_EQ:
+  !mc ffi ms err ms' ffi' mc'.
+    execute_next mc ffi ms = (err,ms',ffi',mc') ==>
+    ffi = ffi'
+Proof
+  rpt strip_tac >>
+  full_simp_tac(srw_ss())[execute_next_def] >>
+  fs[] >>
+  Cases_on `apply_oracle mc.next_interfer (mc.target.next ms)` >> fs[] >>
+  every_case_tac >> full_simp_tac(srw_ss())[]
 QED
 
 Theorem evaluate_io_events_mono:
@@ -273,14 +316,36 @@ Proof
   rpt gen_tac >> strip_tac >>
   simp[Once evaluate_def] >>
   IF_CASES_TAC >> full_simp_tac(srw_ss())[] >>
-  IF_CASES_TAC >> full_simp_tac(srw_ss())[apply_oracle_def] >>
+  IF_CASES_TAC >> full_simp_tac(srw_ss())[apply_oracle_def] >- (
+    every_case_tac >> full_simp_tac(srw_ss())[] >| [
+      Cases_on `mapped_read ffi c c0` >>
+      full_simp_tac(srw_ss())[] >>
+      every_case_tac >> full_simp_tac(srw_ss())[] >>
+      drule mapped_read_io_events_mono >>
+      drule execute_next_ffi_EQ >>
+      METIS_TAC[IS_PREFIX_TRANS],
+      Cases_on `mapped_write ffi c l` >>
+      drule mapped_write_io_events_mono >>
+      drule execute_next_ffi_EQ >>
+      METIS_TAC[IS_PREFIX_TRANS],
+      drule execute_next_ffi_EQ >>
+      full_simp_tac(srw_ss())[IS_PREFIX_APPEND],
+      Cases_on `mapped_read ffi c c0` >>
+      full_simp_tac(srw_ss())[] >>
+      every_case_tac >> full_simp_tac(srw_ss())[] >>
+      drule mapped_read_io_events_mono >>
+      drule execute_next_ffi_EQ >>
+      METIS_TAC[IS_PREFIX_TRANS],
+      Cases_on `mapped_write ffi c l` >>
+      drule mapped_write_io_events_mono >>
+      drule execute_next_ffi_EQ >>
+      METIS_TAC[IS_PREFIX_TRANS],
+      drule execute_next_ffi_EQ >>
+      full_simp_tac(srw_ss())[]
+    ]
+  ) >>
   IF_CASES_TAC >> full_simp_tac(srw_ss())[] >>
   IF_CASES_TAC >> full_simp_tac(srw_ss())[] >>
-  BasicProvers.CASE_TAC >> full_simp_tac(srw_ss())[] >>
-  BasicProvers.CASE_TAC >> full_simp_tac(srw_ss())[] >>
-  TRY BasicProvers.CASE_TAC >> full_simp_tac(srw_ss())[] >>
-  TRY BasicProvers.CASE_TAC >> full_simp_tac(srw_ss())[] >>
-  TRY BasicProvers.CASE_TAC >> full_simp_tac(srw_ss())[] >>
   full_simp_tac(srw_ss())[call_FFI_def] >> every_case_tac >>
   full_simp_tac(srw_ss())[] >>
   rpt var_eq_tac >> full_simp_tac(srw_ss())[] >>
