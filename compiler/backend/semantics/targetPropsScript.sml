@@ -313,11 +313,11 @@ Proof
       TOP_CASE_TAC >>
       PairCases_on `r` >>
       fs[] >>
-      IF_CASES_TAC >> 
+      IF_CASES_TAC >>
       fs[] >>
       drule execute_next_ffi_EQ >>
       strip_tac >>
-      first_x_assum (qspecl_then [`FST (mapped_read ffi c c0)`, 
+      first_x_assum (qspecl_then [`FST (mapped_read ffi c c0)`,
         `SND (mapped_read ffi c c0)`,`r0`, `r1`, `r2`] assume_tac) >>
       gvs[] >>
       irule IS_PREFIX_TRANS >>
@@ -363,28 +363,86 @@ Proof
   ho_match_mp_tac evaluate_ind >>
   rpt gen_tac >> strip_tac >>
   rpt gen_tac >> strip_tac >>
+  `k <= k' + 1` by decide_tac >>
   simp_tac(srw_ss())[Once evaluate_def] >>
-  IF_CASES_TAC >> full_simp_tac(srw_ss())[]
+  IF_CASES_TAC >> fs[]
   >- METIS_TAC[evaluate_io_events_mono]
   >- (
-    `k <= k' + 1` by decide_tac >>
-    res_tac >>
-    CONV_TAC (RAND_CONV (SIMP_CONV std_ss [Once evaluate_def])) >>
-    fs[apply_oracle_def] >>
+    TOP_CASE_TAC >> fs[]
+    >- (
+      TOP_CASE_TAC >> fs[]
+      >- (
+        TOP_CASE_TAC >> fs[apply_oracle_def,ELIM_UNCURRY]
+        >- (
+          TOP_CASE_TAC >>
+          PairCases_on `r` >>
+          gvs[] >>
+          first_x_assum (qspecl_then [`FST (mapped_read ffi c c0)`, `SND
+          (mapped_read ffi c c0)`, `r0`, `r1`, `r2`] assume_tac) >>
+          drule execute_next_ffi_EQ >>
+          rw[] >> gvs[] >>
+          CONV_TAC (RAND_CONV (SIMP_CONV std_ss [Once evaluate_def])) >>
+          gvs[apply_oracle_def,ELIM_UNCURRY,AllCaseEqs()]
+        )
+        >- (
+          IF_CASES_TAC >> gvs[] >>
+          CONV_TAC (RAND_CONV (SIMP_CONV std_ss [Once evaluate_def])) >>
+          gvs[apply_oracle_def,ELIM_UNCURRY,AllCaseEqs()]
+        )
+        >- (
+          TOP_CASE_TAC >> gvs[] >>
+          PairCases_on `r` >>
+          gvs[] >>
+          IF_CASES_TAC >>
+          gvs[] >>
+          drule execute_next_ffi_EQ >>
+          rw[] >> gvs[] >>
+          CONV_TAC (RAND_CONV (SIMP_CONV std_ss [Once evaluate_def])) >>
+          gvs[apply_oracle_def,ELIM_UNCURRY,AllCaseEqs()]
+        )
+      )
+      >- irule evaluate_io_events_mono
+    )
+    >- (
+      TOP_CASE_TAC
+      >- irule evaluate_io_events_mono
+      >- (
+        TOP_CASE_TAC >>
+        gvs[ELIM_UNCURRY]
+        >- (
+          CONV_TAC (RAND_CONV (SIMP_CONV std_ss [Once evaluate_def])) >>
+          gvs[apply_oracle_def,ELIM_UNCURRY,AllCaseEqs()]
+        )
+        >- (
+          TOP_CASE_TAC >> gvs[ELIM_UNCURRY]
+          >- (
+            CONV_TAC (RAND_CONV (SIMP_CONV std_ss [Once evaluate_def])) >>
+            gvs[apply_oracle_def,ELIM_UNCURRY,AllCaseEqs()]
+          )
+          >- (
+            TOP_CASE_TAC >> gvs[ELIM_UNCURRY] >>
+            TOP_CASE_TAC
+            >- (
+              CONV_TAC (RAND_CONV (SIMP_CONV std_ss [Once evaluate_def])) >>
+              gvs[apply_oracle_def,ELIM_UNCURRY,AllCaseEqs()]
+            )
+            >- (
+              TOP_CASE_TAC >> gvs[ELIM_UNCURRY]
+              >- irule evaluate_io_events_mono
+              >- (
+                TOP_CASE_TAC >> gvs[ELIM_UNCURRY]
+                >- (
+                  CONV_TAC (RAND_CONV (SIMP_CONV std_ss [Once evaluate_def])) >>
+                  gvs[apply_oracle_def,ELIM_UNCURRY,AllCaseEqs()]
+                )
+                >- irule evaluate_io_events_mono
+              )
+            )
+          )
+        )
+      )
+    )
   )
-  TRY BasicProvers.TOP_CASE_TAC >> fs [] >>
-  TRY BasicProvers.TOP_CASE_TAC >> fs [] >>
-  full_simp_tac(srw_ss())[apply_oracle_def] >>
-  TRY BasicProvers.TOP_CASE_TAC >> fs [] >>
-  TRY BasicProvers.TOP_CASE_TAC >> fs [] >>
-  TRY BasicProvers.TOP_CASE_TAC >> fs [] >>
-  TRY BasicProvers.TOP_CASE_TAC >> fs []
-  \\ `k ≤ k' + 1` by decide_tac
-  \\ res_tac
-  \\ CONV_TAC (RAND_CONV (SIMP_CONV std_ss [Once evaluate_def]))
-  \\ fs [apply_oracle_def]
-  \\ BasicProvers.TOP_CASE_TAC >> fs []
-  \\ METIS_TAC[evaluate_io_events_mono]
 QED
 
 Theorem machine_sem_total:
