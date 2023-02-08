@@ -250,24 +250,16 @@ Proof
   ho_match_mp_tac evaluate_ind >> srw_tac[][] >>
   qhdtm_x_assum`evaluate` mp_tac >>
   simp[Once evaluate_def] >>
-  IF_CASES_TAC >> full_simp_tac(srw_ss())[] >>
+  IF_CASES_TAC >> fs[] >>
   simp[Once evaluate_def,SimpR``$==>``] >>
-  IF_CASES_TAC >> full_simp_tac(srw_ss())[apply_oracle_def] >- (
-    every_case_tac >> full_simp_tac(srw_ss())[] >| [
-      Cases_on `mapped_read ffi c c0` >>
-      every_case_tac >> full_simp_tac(srw_ss())[] >>
-      every_case_tac >> full_simp_tac(srw_ss())[] >>
-      first_x_assum(qspecl_then [`k1`, `r`, `ms1`, `st1`] mp_tac) >> simp[], 
-      first_x_assum(qspecl_then [`k1`, `r`, `ms1`, `st1`] mp_tac) >> simp[],
-      first_x_assum(qspecl_then [`k1`, `r`, `ms1`, `st1`] mp_tac) >> simp[],
-      Cases_on `mapped_read ffi c c0` >>
-      every_case_tac >> full_simp_tac(srw_ss())[] >>
-      every_case_tac >> full_simp_tac(srw_ss())[] >>
-      first_x_assum(qspecl_then [`k1`, `r`, `ms1`, `st1`] mp_tac) >> simp[], 
-      first_x_assum(qspecl_then [`k1`, `r`, `ms1`, `st1`] mp_tac) >> simp[]
-    ]) >>
-    every_case_tac >> full_simp_tac(srw_ss())[] >>
-    first_x_assum(qspecl_then [`k1`, `r`, `ms1`, `st1`] mp_tac) >> simp[]
+  IF_CASES_TAC >> fs[apply_oracle_def]
+  >- (
+     rw[] >> gvs[AllCaseEqs(),ELIM_UNCURRY] >>
+     first_x_assum (qspecl_then [`FST (mapped_read ffi adr n_bytes)`, `SND
+      (mapped_read ffi adr n_bytes)`,`ms'`,`ffi'`, `mc''`] assume_tac) >>
+     rw[]
+  )
+  >- (rw[] >> gvs[AllCaseEqs(),ELIM_UNCURRY])
 QED
 
 Theorem mapped_read_io_events_mono:
@@ -278,9 +270,8 @@ Proof
   rpt strip_tac >>
   drule EQ_SYM >>
   strip_tac >>
-  full_simp_tac(srw_ss())[mapped_read_def] >>
-  fs[] >>
-  every_case_tac >> full_simp_tac(srw_ss())[]
+  fs[mapped_read_def] >>
+  gvs[AllCaseEqs()]
 QED
 
 Theorem mapped_write_io_events_mono:
@@ -291,9 +282,8 @@ Proof
   rpt strip_tac >>
   drule EQ_SYM >>
   strip_tac >>
-  full_simp_tac(srw_ss())[mapped_write_def] >>
-  fs[] >>
-  every_case_tac >> full_simp_tac(srw_ss())[]
+  fs[mapped_write_def] >>
+  gvs[AllCaseEqs()]
 QED
 
 Theorem execute_next_ffi_EQ:
@@ -302,10 +292,9 @@ Theorem execute_next_ffi_EQ:
     ffi = ffi'
 Proof
   rpt strip_tac >>
-  full_simp_tac(srw_ss())[execute_next_def] >>
-  fs[] >>
+  fs[execute_next_def] >>
   Cases_on `apply_oracle mc.next_interfer (mc.target.next ms)` >> fs[] >>
-  every_case_tac >> full_simp_tac(srw_ss())[]
+  gvs[AllCaseEqs()]
 QED
 
 Theorem evaluate_io_events_mono:
@@ -315,41 +304,54 @@ Proof
   ho_match_mp_tac evaluate_ind >>
   rpt gen_tac >> strip_tac >>
   simp[Once evaluate_def] >>
-  IF_CASES_TAC >> full_simp_tac(srw_ss())[] >>
-  IF_CASES_TAC >> full_simp_tac(srw_ss())[apply_oracle_def] >- (
-    every_case_tac >> full_simp_tac(srw_ss())[] >| [
+  IF_CASES_TAC >> fs[] >>
+  IF_CASES_TAC >> fs[apply_oracle_def]
+  >- (
+    IF_CASES_TAC >> fs[] >>
+    TOP_CASE_TAC >> gvs[ELIM_UNCURRY]
+    >- (
+      TOP_CASE_TAC >>
+      PairCases_on `r` >>
+      fs[] >>
+      IF_CASES_TAC >> 
+      fs[] >>
+      drule execute_next_ffi_EQ >>
+      strip_tac >>
+      first_x_assum (qspecl_then [`FST (mapped_read ffi c c0)`, 
+        `SND (mapped_read ffi c c0)`,`r0`, `r1`, `r2`] assume_tac) >>
+      gvs[] >>
+      irule IS_PREFIX_TRANS >>
+      qexists_tac `(FST (mapped_read ffi c c0)).io_events` >>
+      rw[] >>
       Cases_on `mapped_read ffi c c0` >>
-      full_simp_tac(srw_ss())[] >>
-      every_case_tac >> full_simp_tac(srw_ss())[] >>
-      drule mapped_read_io_events_mono >>
+      rw[] >>
+      METIS_TAC[mapped_read_io_events_mono]
+    )
+    >- (
+      IF_CASES_TAC >> gvs[] >>
+      irule IS_PREFIX_TRANS >>
+      qexists_tac `(mapped_write ffi c l).io_events` >>
+      rw[] >>
+      METIS_TAC[mapped_write_io_events_mono]
+    )
+    >- (
+      TOP_CASE_TAC >>
+      gvs[] >>
+      PairCases_on `r` >>
+      gvs[] >>
       drule execute_next_ffi_EQ >>
-      METIS_TAC[IS_PREFIX_TRANS],
-      Cases_on `mapped_write ffi c l` >>
-      drule mapped_write_io_events_mono >>
-      drule execute_next_ffi_EQ >>
-      METIS_TAC[IS_PREFIX_TRANS],
-      drule execute_next_ffi_EQ >>
-      full_simp_tac(srw_ss())[IS_PREFIX_APPEND],
-      Cases_on `mapped_read ffi c c0` >>
-      full_simp_tac(srw_ss())[] >>
-      every_case_tac >> full_simp_tac(srw_ss())[] >>
-      drule mapped_read_io_events_mono >>
-      drule execute_next_ffi_EQ >>
-      METIS_TAC[IS_PREFIX_TRANS],
-      Cases_on `mapped_write ffi c l` >>
-      drule mapped_write_io_events_mono >>
-      drule execute_next_ffi_EQ >>
-      METIS_TAC[IS_PREFIX_TRANS],
-      drule execute_next_ffi_EQ >>
-      full_simp_tac(srw_ss())[]
-    ]
-  ) >>
-  IF_CASES_TAC >> full_simp_tac(srw_ss())[] >>
-  IF_CASES_TAC >> full_simp_tac(srw_ss())[] >>
-  full_simp_tac(srw_ss())[call_FFI_def] >> every_case_tac >>
-  full_simp_tac(srw_ss())[] >>
-  rpt var_eq_tac >> full_simp_tac(srw_ss())[] >>
-  full_simp_tac(srw_ss())[IS_PREFIX_APPEND]
+      gvs[] >>
+      IF_CASES_TAC >>
+      gvs[]
+    )
+  )
+  >- (
+    IF_CASES_TAC >> full_simp_tac(srw_ss())[] >>
+    IF_CASES_TAC >> full_simp_tac(srw_ss())[] >>
+    fs[call_FFI_def] >> every_case_tac >>
+    fs[] >>
+    rpt var_eq_tac >> fs[] >>
+    fs[IS_PREFIX_APPEND])
 QED
 
 Theorem evaluate_add_clock_io_events_mono:
@@ -363,8 +365,13 @@ Proof
   rpt gen_tac >> strip_tac >>
   simp_tac(srw_ss())[Once evaluate_def] >>
   IF_CASES_TAC >> full_simp_tac(srw_ss())[]
-  >- METIS_TAC[evaluate_io_events_mono] >>
-  BasicProvers.TOP_CASE_TAC >> fs [] >>
+  >- METIS_TAC[evaluate_io_events_mono]
+  >- (
+    `k <= k' + 1` by decide_tac >>
+    res_tac >>
+    CONV_TAC (RAND_CONV (SIMP_CONV std_ss [Once evaluate_def])) >>
+    fs[apply_oracle_def] >>
+  )
   TRY BasicProvers.TOP_CASE_TAC >> fs [] >>
   TRY BasicProvers.TOP_CASE_TAC >> fs [] >>
   full_simp_tac(srw_ss())[apply_oracle_def] >>
