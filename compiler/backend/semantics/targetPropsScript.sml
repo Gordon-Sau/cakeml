@@ -11,19 +11,25 @@ val _ = new_theory"targetProps";
 val _ = set_grammar_ancestry["ffi","asm","targetSem","misc"];
 
 val shift_interfer_def = Define `
-  shift_interfer k s =
-    s with next_interfer := shift_seq k s.next_interfer`
+  shift_interfer k r w s =
+    s with <|
+      next_interfer := shift_seq k s.next_interfer;
+      read_interfer := shift_seq r s.read_interfer;
+      write_interfer := shift_seq w s.write_interfer |>`;
 
 val shift_interfer_intro = Q.prove(
-  `shift_interfer k1 (shift_interfer k2 c) =
-    shift_interfer (k1+k2) c`,
-  full_simp_tac(srw_ss())[shift_interfer_def,shift_seq_def,ADD_ASSOC]);
+  `shift_interfer k1 r1 w1 (shift_interfer k2 r2 w2 c) =
+    shift_interfer (k1+k2) (r1+r2) (w1+w2) c`,
+  fs[shift_interfer_def,shift_seq_def]);
 
 val evaluate_EQ_evaluate_lemma = Q.prove(
   `!n ms1 c.
       c.target.get_pc ms1 IN c.prog_addresses /\ c.target.state_ok ms1 /\
       (c.prog_addresses = dm) ∧
       interference_ok c.next_interfer (c.target.proj dm) /\
+      (!adr v. interference_ok
+        (\k st. c.write_interfer k (adr,v,st)) (c.target.proj dm)) /\
+      read_interfer_ok c /\
       (!s ms. target_state_rel c.target s ms ==> c.target.state_ok ms) /\
       (!ms1 ms2. (c.target.proj dm ms1 = c.target.proj dm ms2) ==>
            (c.target.state_ok ms1 = c.target.state_ok ms2) /\
@@ -45,17 +51,22 @@ val evaluate_EQ_evaluate_lemma = Q.prove(
         k * (2 ** c.target.config.code_alignment) < LENGTH (c.target.config.encode i) /\
         bytes_in_memory init_pc (c.target.config.encode i)
           (c.target.get_byte ms1) c.prog_addresses) ==>
-      ?ms2.
-        !k. (evaluate c io (k + (n + 1)) ms1 =
-             evaluate (shift_interfer (n+1) c) io k ms2) /\
-            target_state_rel c.target s2 ms2`,
+      ?ms2 io2.
+        !k.
+          ?nn rn wn.
+            (evaluate c io (k + (n + 1)) ms1 =
+              evaluate (shift_interfer nn rn wn c) io2 k ms2) /\
+            target_state_rel c.target s2 ms2 /\
+            (nn + wn = n+1)`,
   Induct THEN1
-   (full_simp_tac(srw_ss())[] \\ REPEAT STRIP_TAC
-    \\ full_simp_tac(srw_ss())[asserts_def,LET_DEF]
-    \\ SIMP_TAC std_ss [Once evaluate_def] \\ full_simp_tac(srw_ss())[LET_DEF]
-    \\ FIRST_X_ASSUM (MP_TAC o Q.SPEC `K (c.next_interfer 0)`)
-    \\ full_simp_tac(srw_ss())[interference_ok_def] \\ RES_TAC \\ full_simp_tac(srw_ss())[]
-    \\ REPEAT STRIP_TAC \\ RES_TAC \\ full_simp_tac(srw_ss())[shift_interfer_def,apply_oracle_def]
+    fs[] \\ rpt strip_tac
+    \\ fs[asserts_def,LET_DEF]
+    \\ SIMP_TAC std_ss [Once evaluate_def] \\ fs[LET_DEF]
+    \\ FIRST_X_ASSUM (fn t =>
+       assume_tac t
+       \\ (MP_TAC o Q.SPEC `K (c.next_interfer 0)`) t)
+    \\ fs[interference_ok_def] \\ RES_TAC \\ fs[]
+    \\ REPEAT STRIP_TAC \\ RES_TAC \\ fs[shift_interfer_def,apply_oracle_def]
     \\ reverse TOP_CASE_TAC
     >- (
       `F` suffices_by fs[]
@@ -66,6 +77,49 @@ val evaluate_EQ_evaluate_lemma = Q.prove(
       \\ qmatch_goalsub_abbrev_tac`bytes_in_memory _ _ mm dm`
       \\ Q.ISPECL_THEN[`TAKE m ls`,`DROP m ls`,`init_pc`,`mm`,`dm`]mp_tac bytes_in_memory_APPEND
       \\ rfs[] )
+    >- (
+      reverse TOP_CASE_TAC
+      >- (
+        TOP_CASE_TAC
+        \\ PairCases_on `r`
+        \\ gvs[execute_next_def,ELIM_UNCURRY,apply_oracle_def,shift_interfer_def]
+        \\ TOP_CASE_TAC
+        >- (
+          gvs[AllCaseEqs()]
+          \\ qexistsl [`c.next_interfer 0 (c.target.next ms1)`,
+            `io`]
+          \\ rw[]
+          \\ qexistsl [`1`,`0`,`0`]
+          \\ gvs[shift_seq_def,ETA_CONV ``\(i:num). c.read_interfer i``,
+            ETA_CONV ``\(i:num). c.write_interfer i``]
+          \\ `(c with
+              <|next_interfer := (\i. c.next_interfer (i+1));
+                read_interfer := c.read_interfer;
+                write_interfer := c.write_interfer|>) =
+              (c with
+              <|next_interfer := (\i. c.next_interfer (i+1))|>)`
+              suffices_by METIS_TAC[]
+          \\ gvs[machine_config_component_equality]
+        )
+        >- (
+          gvs[AllCaseEqs(),shift_seq_def, target_state_rel_def]
+          \\ `F` suffices_by fs[]
+          \\ pop_assum mp_tac
+          \\ fs[Once asserts2_def]
+          \\ METIS_TAC[]
+        )
+      )
+      >- (
+        qexistsl [`(c.write_interfer 0 (c',l,c.advance_pc ms1 c0))`,
+        `mapped_write io c' l`]
+        \\ TOP_CASE_TAC >> gvs[target_state_rel_def,shift_seq_def]
+        >- (
+          
+        )
+        >-
+      )
+      >-
+    )
     \\ reverse TOP_CASE_TAC
     >- (
       `F` suffices_by fs[]
@@ -173,13 +227,20 @@ Theorem asm_step_IMP_evaluate_step = Q.prove(`
       encoder_correct c.target /\
       (c.prog_addresses = s1.mem_domain) /\
       interference_ok c.next_interfer (c.target.proj s1.mem_domain) /\
+      (!adr v. interference_ok
+        (\k st. c.write_interfer k (adr,v,st)) (c.target.proj dm)) /\
+      read_interfer_ok c /\
       asm_step c.target.config s1 i s2 /\
       (s2 = asm i (s1.pc + n2w (LENGTH (c.target.config.encode i))) s1) /\
       target_state_rel c.target (s1:'a asm_state) (ms1:'state) ==>
-      ?l ms2. !k. (evaluate c io (k + l) ms1 =
-                   evaluate (shift_interfer l c) io k ms2) /\
-                  target_state_rel c.target s2 ms2 /\ l <> 0`,
-  full_simp_tac(srw_ss()) [encoder_correct_def, target_ok_def, LET_DEF]
+      ?l ms2 io2.
+        !k.
+          ?nl rl wl.
+            (evaluate c io (k + l) ms1 =
+                evaluate (shift_interfer nl rl wl c) io2 k ms2) /\
+            target_state_rel c.target s2 ms2 /\
+            (l <> 0) /\ (nl + wl = l)`,
+  fs[encoder_correct_def, target_ok_def, LET_DEF]
   \\ rw[]
   \\ first_x_assum drule
   \\ disch_then drule
