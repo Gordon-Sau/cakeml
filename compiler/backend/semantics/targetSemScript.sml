@@ -224,8 +224,8 @@ val code_loaded_def = Define`
            then SOME (mc.target.get_byte ms a) else NONE) = SOME bytes`;
 
 val check_mem_access_ok_def = Define`
-  check_mem_access_ok (mc_conf: ('a,'b,'c) machine_config) <=>
-    !ms2 t1 asm_i asm_conf.
+  check_mem_access_ok (mc_conf: ('a,'b,'c) machine_config) asm_conf <=>
+    !ms2 t1 asm_i.
       target_state_rel mc_conf.target t1 ms2 /\
       bytes_in_memory t1.pc (asm_conf.encode asm_i) t1.mem t1.mem_domain ==>
       let w2list = w2wlist t1.be in
@@ -262,7 +262,7 @@ val target_configured_def = Define`
     t.mem_domain = mc_conf.prog_addresses /\
     t.shared_mem_domain = mc_conf.shared_addresses /\
     DISJOINT mc_conf.prog_addresses mc_conf.shared_addresses /\
-    check_mem_access_ok mc_conf /\
+    check_mem_access_ok mc_conf mc_conf.target.config /\
     ~ (MEM "MappedWrite" mc_conf.ffi_names) /\
     ~ (MEM "MappedRead" mc_conf.ffi_names) /\
 
