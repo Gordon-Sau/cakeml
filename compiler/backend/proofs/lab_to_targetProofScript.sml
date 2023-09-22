@@ -797,9 +797,9 @@ val state_rel_def = Define `
             pc := t1.regs s1.link_reg|>)
         (mc_conf.ccache_interfer k (a1,a2,ms2))) /\
     s1.compile = compile_lab ∧
-    (∀k. let (cfg,code) = s1.compile_oracle k in
+    (no_share_mem_inst code2 ==> (∀k. let (cfg,code) = s1.compile_oracle k in
             good_code mc_conf.target.config cfg.labels code ∧
-            no_share_mem_inst code /\
+            no_share_mem_inst code ∧
             (* Initial configuration for oracle
                Note: this should not be stated as a record cfg = <|...|>
                because some parts of it can be freely chosen (e.g. the clock)
@@ -809,7 +809,7 @@ val state_rel_def = Define `
             cfg.pos = LENGTH (prog_to_bytes code2) ∧
             cfg.asm_conf = mc_conf.target.config ∧
             cfg.ffi_names = SOME(mc_conf.ffi_names)
-            )) ∧
+            ))) ∧
     (!l1 l2 x.
        (lab_lookup l1 l2 labs = SOME x) ==> EVEN x) /\
     ((1w && p) = 0w) /\
@@ -6282,9 +6282,10 @@ fun share_mem_load_compile_correct_tac ffi_name new_t1 nb new_ffi =
         \\ drule_all bytes_in_memory_eq_mem
         \\ simp[]
       )
-      \\ strip_tac
+      \\ rpt strip_tac
       \\ fs[target_state_rel_def]
-      \\ qexistsl [`code2`, new_t1]
+      \\ first_x_assum $ irule_at (Pat `all_enc_ok _ _ _ _`)
+      \\ qexists new_t1
       \\ rw[]
       >- (first_x_assum irule >> metis_tac[])
       \\ simp[APPLY_UPDATE_THM]
@@ -6378,9 +6379,10 @@ fun share_mem_store_compile_correct_tac ffi_name new_t1 (nb: term frag list) new
         \\ drule_all bytes_in_memory_eq_mem
         \\ simp[]
       )
-      \\ strip_tac
+      \\ rpt strip_tac
       \\ fs[target_state_rel_def]
-      \\ qexistsl [`code2`, new_t1]
+      \\ first_x_assum (irule_at (Pat `all_enc_ok`))
+      \\ qexists new_t1
       \\ rw[]
       >- (first_x_assum irule >> metis_tac[])
       \\ simp[APPLY_UPDATE_THM]
@@ -7698,6 +7700,16 @@ Proof
        fs[Abbr`mc_conf2`,shift_interfer_def]
        \\ fs[state_rel_def,Abbr`t2`,Abbr`ms12`]
        \\ rfs[]>>
+       reverse $ gvs[no_install_or_no_share_mem_def]
+       >- (
+         gvs[no_install_def,asm_fetch_def] >>
+         drule code_similar_IMP_asm_fetch_aux_line_similar >>
+         disch_then $ qspec_then `s1.pc` assume_tac >>
+         gvs[DefnBase.one_line_ify NONE line_similar_def,OPTREL_def] >>
+         rename1 `asm_fetch_aux s1.pc code2 = SOME yy` >>
+         Cases_on `yy` >>
+         gvs[]
+       ) >>
        qpat_assum `!k. _ (s1.compile_oracle k)` (qspec_then`0` mp_tac)>>
        qpat_assum`s1.compile_oracle 0 = _` SUBST1_TAC>>
        SIMP_TAC (srw_ss()) [] >>
@@ -7735,8 +7747,14 @@ Proof
         fs[]>>
         simp[prog_to_bytes_MAP]>>
         simp[GSYM prog_to_bytes_MAP]>>
-        metis_tac[LENGTH_prog_to_bytes,ADD_COMM])
-      \\ conj_tac >- (rw[]>>metis_tac[])
+        gvs[])
+      \\ conj_tac >- (
+        rw[] >>
+        gvs[shift_seq_def]>>
+        first_x_assum irule >>
+        qpat_x_assum `_ = FST (s1.compile_oracle 1)` $ assume_tac o GSYM >>
+        gvs[] >>
+        metis_tac[])
       \\ conj_tac >-(
         fs[find_ffi_names_append,list_subset_def]>>
         fs[EVERY_FILTER,EVERY_MEM])
@@ -7755,6 +7773,9 @@ Proof
         reverse (TOP_CASE_TAC>>fs[])
         >-
           (rw[]>> first_x_assum drule>>
+          fs[shift_seq_def] >>
+          qpat_x_assum `_ = FST (s1.compile_oracle 1)` $ assume_tac o GSYM >>
+          gvs[] >>
           strip_tac>>
           first_x_assum drule>>
           simp[pos_val_append]>>
@@ -8251,7 +8272,7 @@ val compiler_oracle_ok_def = Define`
         cfg.labels = init_labs ∧
         cfg.pos = init_pos ∧
         cfg.asm_conf = c ∧
-        cfg.ffi_names = SOME ffis)`
+        ?f. cfg.ffi_names = SOME f ∧ f ++ (FST cfg.shmem_extra) = ffis)`
 
 (* mc_conf_ok: conditions on the machine configuration
    which will be discharged for the particular configuration of each target

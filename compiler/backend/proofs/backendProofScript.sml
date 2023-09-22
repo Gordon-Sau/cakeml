@@ -3116,7 +3116,7 @@ Theorem compile_correct':
    ¬semantics_prog s env prog Fail ∧
    backend_config_ok c ∧ lab_to_targetProof$mc_conf_ok mc ∧ mc_init_ok c mc ∧
    opt_eval_config_wf c' ev ∧
-   installed bytes cbspace bitmaps data_sp c'.lab_conf.ffi_names (heap_regs c.stack_conf.reg_names) mc ms c'.lab_conf.shmem_extra ⇒
+   installed bytes cbspace bitmaps data_sp CONFIG.lab_conf.ffi_names (heap_regs c.stack_conf.reg_names) mc ms CONFIG.lab_conf.shmem_extra ⇒
      machine_sem (mc:(α,β,γ) machine_config) ffi ms ⊆
        extend_with_resource_limit'
          (is_safe_for_space ffi c prog (read_limits c mc ms))
@@ -3129,8 +3129,8 @@ Proof
         backend_config_ok_def,heap_regs_def] >>
     assume_tac t) >>
   `c.lab_conf.asm_conf = mc.target.config` by fs[mc_init_ok_def] >>
-  `?old_ffi_names. c'.lab_conf.ffi_names = SOME old_ffi_names /\
-    mc.ffi_names = old_ffi_names ++ FST c'.lab_conf.shmem_extra` by fs[targetSemTheory.installed_def] >>
+  `?old_ffi_names. CONFIG.lab_conf.ffi_names = SOME old_ffi_names /\
+    mc.ffi_names = old_ffi_names ++ FST CONFIG.lab_conf.shmem_extra` by fs[targetSemTheory.installed_def] >>
 
   fs [] >>
   rpt (pairarg_tac >> fs []) >>
@@ -3504,14 +3504,15 @@ Proof
   disch_then(old_drule o CONV_RULE(STRIP_QUANT_CONV(LAND_CONV(move_conj_left(optionSyntax.is_some o rhs))))) \\
   simp[Abbr`c4`] \\
   disch_then(old_drule o CONV_RULE(STRIP_QUANT_CONV(LAND_CONV(move_conj_left(same_const``good_init_state`` o fst o strip_comb))))) \\
-  disch_then(qspecl_then[`ffi`,`lab_oracle`]mp_tac)
+  disch_then(qspecl_then[`old`,`ffi`,`lab_oracle`]mp_tac)
   \\ old_drule (GEN_ALL bvi_tailrecProofTheory.compile_prog_next_mono)
   \\ strip_tac
   \\ pop_assum(assume_tac o Abbrev_intro)
-  \\ full_simp_tac (bool_ss ++ simpLib.type_ssfrag ``: 'a config``) []
+  \\ full_simp_tac (bool_ss ++ simpLib.type_ssfrag ``: 'a config``) [PULL_FORALL]
 
   \\ impl_keep_tac
   >- (
+    strip_tac >>
     conj_tac >- (
       rpt (qsubpat_x_assum kall_tac `dataSem$semantics`)
       \\ rpt (qsubpat_x_assum kall_tac `closSem$semantics`)
@@ -3519,9 +3520,9 @@ Proof
       \\ simp [compiler_oracle_ok_def]
       \\ conj_tac >- (
         gen_tac
-        \\ pairarg_tac \\ simp []
+        \\ pairarg_tac \\ simp [] >>
         conj_tac >- (
-          \\ drule_then (drule_then irule) (GEN_ALL good_code_lab_oracle)
+          drule_then (drule_then irule) (GEN_ALL good_code_lab_oracle)
           \\ fs [Abbr `stoff`, backend_config_ok_def, asmTheory.offset_ok_def]
           \\ asm_exists_tac
           \\ simp []
